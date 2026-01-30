@@ -600,8 +600,9 @@ func (t *Terminal) setConfig(args []string) {
 		}
 		content = string(data)
 	} else {
-		// Read content from terminal: multi-line until empty line
-		fmt.Println("\033[90mEnter config content (empty line to finish):\033[0m")
+		// Read content from terminal: multi-line until empty line or single "."
+		fmt.Println("\033[90mEnter config content. Finish with a blank line or a single dot line.\033[0m")
+		fmt.Println("\033[90m  (Type your content, then press Enter, then press Enter again — or type \".\" and Enter)\033[0m")
 		var lines []string
 		for {
 			line, err := t.rl.Readline()
@@ -616,7 +617,8 @@ func (t *Terminal) setConfig(args []string) {
 				fmt.Printf("\033[31mError:\033[0m %v\n", err)
 				return
 			}
-			if strings.TrimSpace(line) == "" {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || trimmed == "." {
 				break
 			}
 			lines = append(lines, line)

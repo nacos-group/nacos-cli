@@ -135,13 +135,21 @@ func (c *NacosClient) applyLoginResponse(body []byte) bool {
 	if err := json.Unmarshal(body, &result); err != nil {
 		return false
 	}
-	token, ok := result["accessToken"].(string)
+	// Prefer nested data (v3 Result wrapper)
+	if data, ok := result["data"].(map[string]interface{}); ok {
+		return c.applyLoginFromMap(data)
+	}
+	return c.applyLoginFromMap(result)
+}
+
+func (c *NacosClient) applyLoginFromMap(m map[string]interface{}) bool {
+	token, ok := m["accessToken"].(string)
 	if !ok || token == "" {
 		return false
 	}
 	c.AccessToken = token
 	var ttlSec int64 = 0
-	switch v := result["tokenTtl"].(type) {
+	switch v := m["tokenTtl"].(type) {
 	case float64:
 		ttlSec = int64(v)
 	case int:
@@ -350,21 +358,25 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 		return err
 	}
 	params := map[string]string{
-		"dataId":  dataID,
-		"group":   group,
-		"content": content,
+		"dataId":    dataID,
+		"groupName": group, // v3 API uses "groupName" instead of "group"
+		"content":   content,
 	}
 
 	if c.Namespace != "" {
-		params["tenant"] = c.Namespace
+		params["namespaceId"] = c.Namespace // v3 API uses "namespaceId" instead of "tenant"
 	}
 
 	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-		params["accessToken"] = c.AccessToken
+		// v3 API uses Authorization header instead of accessToken param
+		// But we'll also keep it in params for compatibility if needed
 	}
 
-	apiURL := fmt.Sprintf("http://%s/nacos/v3/cs/configs", c.ServerAddr)
+	apiURL := fmt.Sprintf("http://%s/nacos/v3/admin/cs/config", c.ServerAddr)
 	req := c.httpClient.R().SetFormData(params)
+	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+	}
 	c.setSpasHeaders(req, c.Namespace, group)
 	resp, err := req.Post(apiURL)
 
@@ -372,8 +384,29 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 		return fmt.Errorf("publish config failed: %w", err)
 	}
 
-	if resp.StatusCode() != 200 || string(resp.Body()) != "true" {
+	if resp.StatusCode() != 200 {
 		return fmt.Errorf("publish config failed: status=%d, body=%s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	// v3 API returns Result<Boolean>: {"code":0,"message":null,"data":true}
+	var v3Resp V3Response
+	if err := json.Unmarshal(resp.Body(), &v3Resp); err != nil {
+		// If not JSON, might be plain "true" (backward compatibility)
+		if string(resp.Body()) == "true" {
+			return nil
+		}
+		return fmt.Errorf("publish config failed: invalid response format: %s", string(resp.Body()))
+	}
+	if v3Resp.Code != 0 {
+		return fmt.Errorf("publish config failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+	// Check if data is true
+	var result bool
+	if err := json.Unmarshal(v3Resp.Data, &result); err != nil {
+		return fmt.Errorf("publish config failed: invalid data format: %w", err)
+	}
+	if !result {
+		return fmt.Errorf("publish config failed: server returned false")
 	}
 
 	return nil

@@ -179,6 +179,9 @@ func (c *NacosClient) ensureTokenValid() error {
 }
 
 // getSignData builds SPAS sign payload (tenant, group, timeStamp).
+// Matches Java SpasAdapter.getSignData logic:
+// - If tenant is blank: group+timeStamp (or just timeStamp if group is blank)
+// - If tenant is not blank: tenant+group+timeStamp (or tenant+timeStamp if group is blank)
 func getSignData(tenant, group, timeStamp string) string {
 	if tenant == "" {
 		if group == "" {
@@ -200,14 +203,21 @@ func spasSign(signData, secretKey string) string {
 }
 
 // setSpasHeaders sets Aliyun AK/SK headers: timeStamp, Spas-AccessKey, Spas-Signature.
+// Signature logic matches Java SpasAdapter.signWithHmacSha1Encrypt implementation.
 func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
 	if c.AuthType != AuthTypeAliyun || c.AccessKey == "" || c.SecretKey == "" {
 		return
 	}
+	// Use UnixMilli() to match Java System.currentTimeMillis()
 	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	req.SetHeader("timeStamp", ts)
 	req.SetHeader("Spas-AccessKey", c.AccessKey)
-	signData := getSignData(tenant, group, ts)
+	// Normalize tenant: treat "public" as empty string for signing
+	normalizedTenant := tenant
+	if normalizedTenant == "public" {
+		normalizedTenant = ""
+	}
+	signData := getSignData(normalizedTenant, group, ts)
 	req.SetHeader("Spas-Signature", spasSign(signData, c.SecretKey))
 }
 

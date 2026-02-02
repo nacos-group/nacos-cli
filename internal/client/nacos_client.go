@@ -102,9 +102,9 @@ func (c *NacosClient) login() error {
 		if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
 			c.authLoginVersion = "v3"
 		} else if err != nil {
-			fmt.Printf("v3 login failed: %w", err)
+			fmt.Printf("v3 login failed: %w\n", err)
 		} else if resp != nil && resp.StatusCode() != 200 {
-			fmt.Printf("v3 login failed: status=%d, body=%s", resp.StatusCode(), string(resp.Body()))
+			fmt.Printf("v3 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
 		}
 	}
 
@@ -114,9 +114,9 @@ func (c *NacosClient) login() error {
 	if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
 		c.authLoginVersion = "v1"
 	} else if err != nil {
-		fmt.Printf("v1 login failed: %w", err)
+		fmt.Printf("v1 login failed: %w\n", err)
 	} else if resp != nil && resp.StatusCode() != 200 {
-		fmt.Printf("v1 login failed: status=%d, body=%s", resp.StatusCode(), string(resp.Body()))
+		fmt.Printf("v1 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
 	}
 	return nil
 }

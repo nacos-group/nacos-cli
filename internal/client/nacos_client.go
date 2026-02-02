@@ -91,9 +91,18 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 	return c
 }
 
+// isLocalAddr checks if the server address is a local address
+func (c *NacosClient) isLocalAddr() bool {
+	addr := strings.ToLower(c.ServerAddr)
+	return strings.HasPrefix(addr, "127.0.0.1") ||
+		strings.HasPrefix(addr, "localhost") ||
+		strings.HasPrefix(addr, "0.0.0.0")
+}
+
 // login gets an access token. Tries v3 first, then v1; sticks to the version that succeeds.
 func (c *NacosClient) login() error {
 	form := map[string]string{"username": c.Username, "password": c.Password}
+	isLocal := c.isLocalAddr()
 
 	tryV3 := c.authLoginVersion == "" || c.authLoginVersion == "v3"
 	if tryV3 {
@@ -101,10 +110,12 @@ func (c *NacosClient) login() error {
 		resp, err := c.httpClient.R().SetFormData(form).Post(u)
 		if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
 			c.authLoginVersion = "v3"
-		} else if err != nil {
-			fmt.Printf("v3 login failed: %w\n", err)
-		} else if resp != nil && resp.StatusCode() != 200 {
-			fmt.Printf("v3 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
+		} else if !isLocal {
+			if err != nil {
+				fmt.Printf("v3 login failed: %v\n", err)
+			} else if resp != nil && resp.StatusCode() != 200 {
+				fmt.Printf("v3 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
+			}
 		}
 	}
 
@@ -113,10 +124,12 @@ func (c *NacosClient) login() error {
 	resp, err := c.httpClient.R().SetFormData(form).Post(u)
 	if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
 		c.authLoginVersion = "v1"
-	} else if err != nil {
-		fmt.Printf("v1 login failed: %w\n", err)
-	} else if resp != nil && resp.StatusCode() != 200 {
-		fmt.Printf("v1 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
+	} else if !isLocal {
+		if err != nil {
+			fmt.Printf("v1 login failed: %v\n", err)
+		} else if resp != nil && resp.StatusCode() != 200 {
+			fmt.Printf("v1 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
+		}
 	}
 	return nil
 }

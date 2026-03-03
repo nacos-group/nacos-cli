@@ -28,6 +28,12 @@ type SkillInfo struct {
 	Description string `json:"description" yaml:"description"`
 }
 
+// SkillListItem represents a skill item in the list with name and description
+type SkillListItem struct {
+	Name        string
+	Description string
+}
+
 // Skill represents a complete skill
 type Skill struct {
 	Name        string              `json:"name"`
@@ -44,8 +50,8 @@ func NewSkillService(nacosClient *client.NacosClient) *SkillService {
 	}
 }
 
-// ListSkills lists all skills
-func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]string, int, error) {
+// ListSkills lists all skills with name and description
+func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]SkillListItem, int, error) {
 	// Build group filter with skill name if provided
 	groupFilter := "skill_*"
 	if skillName != "" {
@@ -58,7 +64,7 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]str
 		return nil, 0, err
 	}
 
-	var skills []string
+	var skills []SkillListItem
 	for _, config := range configs.PageItems {
 		groupName := config.GroupName
 		if groupName == "" {
@@ -67,7 +73,22 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]str
 
 		if config.DataID == "skill.json" && strings.HasPrefix(groupName, "skill_") {
 			skillName := strings.TrimPrefix(groupName, "skill_")
-			skills = append(skills, skillName)
+
+			// Extract description from content
+			description := ""
+			if config.Content != "" {
+				var skillData struct {
+					Description string `json:"description"`
+				}
+				if err := json.Unmarshal([]byte(config.Content), &skillData); err == nil {
+					description = skillData.Description
+				}
+			}
+
+			skills = append(skills, SkillListItem{
+				Name:        skillName,
+				Description: description,
+			})
 		}
 	}
 

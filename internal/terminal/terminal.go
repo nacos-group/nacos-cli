@@ -283,6 +283,7 @@ func (t *Terminal) listSkills(args []string) {
 	// Parse flags
 	var name string
 	var page, size int = 1, 20
+	var showDesc bool = false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -316,6 +317,8 @@ func (t *Terminal) listSkills(args []string) {
 		} else if arg == "--size=" && i+1 < len(args) {
 			i++
 			fmt.Sscanf(args[i], "%d", &size)
+		} else if arg == "--desc" {
+			showDesc = true
 		}
 	}
 
@@ -340,9 +343,13 @@ func (t *Terminal) listSkills(args []string) {
 	}
 
 	fmt.Printf("\n\033[1;36mSkill List\033[0m \033[90m(Page: %d/%d, Total: %d)\033[0m\n", page, (totalCount+size-1)/size, totalCount)
-	fmt.Println("\033[36m═══════════════════════════════════════════════════════\033[0m")
-	for i, skillName := range skills {
-		fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m\n", (page-1)*size+i+1, skillName)
+	fmt.Println("\033[36m═══════════════════════════════════════════════════════════════════════════════\033[0m")
+	for i, skill := range skills {
+		if showDesc && skill.Description != "" {
+			fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m \033[90m- %s\033[0m\n", (page-1)*size+i+1, skill.Name, skill.Description)
+		} else {
+			fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m\n", (page-1)*size+i+1, skill.Name)
+		}
 	}
 }
 

@@ -44,7 +44,10 @@ var syncSkillCmd = &cobra.Command{
 				os.Exit(0)
 			}
 
-			skillNames = skills
+			// Extract skill names from SkillListItem
+			for _, s := range skills {
+				skillNames = append(skillNames, s.Name)
+			}
 			fmt.Printf("Found %d skills\n\n", len(skillNames))
 		} else if len(args) == 0 {
 			fmt.Fprintf(os.Stderr, "Error: skill name required (or use --all to sync all skills)\n")

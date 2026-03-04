@@ -98,38 +98,47 @@ func (c *NacosClient) isLocalAddr() bool {
 		strings.HasPrefix(addr, "0.0.0.0")
 }
 
-// login attempts to authenticate with Nacos server using v3 API first, then falls back to v1
+// login attempts to authenticate with Nacos server using v3 API first, then falls back to v1.
+// For Nacos 3.x, v3 login succeeds but some legacy v1 APIs (like config list) may return 410 (Gone),
+// so once v3 login succeeds we MUST NOT override authLoginVersion with v1.
 func (c *NacosClient) login() error {
 	form := map[string]string{"username": c.Username, "password": c.Password}
 	isLocal := c.isLocalAddr()
 
+	// Prefer v3 login. If we've previously determined v1 only, skip v3.
 	tryV3 := c.authLoginVersion == "" || c.authLoginVersion == "v3"
 	if tryV3 {
 		u := fmt.Sprintf("http://%s/nacos/v3/auth/user/login", c.ServerAddr)
 		resp, err := c.httpClient.R().SetFormData(form).Post(u)
-		if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
-			c.authLoginVersion = "v3"
-		} else if !isLocal {
-			if err != nil {
+		if err != nil {
+			if !isLocal {
 				fmt.Printf("v3 login failed: %v\n", err)
-			} else if resp != nil && resp.StatusCode() != 200 {
-				fmt.Printf("v3 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
 			}
+		} else if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
+			c.authLoginVersion = "v3"
+			return nil
+		} else if !isLocal && resp != nil {
+			fmt.Printf("v3 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
 		}
 	}
 
+	// Fallback to v1 login if v3 is unavailable (e.g., older Nacos versions).
 	u := fmt.Sprintf("http://%s/nacos/v1/auth/login", c.ServerAddr)
 	resp, err := c.httpClient.R().SetFormData(form).Post(u)
+	if err != nil {
+		if !isLocal {
+			fmt.Printf("v1 login failed: %v\n", err)
+		}
+		return err
+	}
 	if resp != nil && resp.StatusCode() == 200 && c.applyLoginResponse(resp.Body()) {
 		c.authLoginVersion = "v1"
-	} else if !isLocal {
-		if err != nil {
-			fmt.Printf("v1 login failed: %v\n", err)
-		} else if resp != nil && resp.StatusCode() != 200 {
-			fmt.Printf("v1 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
-		}
+		return nil
 	}
-	return nil
+	if !isLocal && resp != nil {
+		fmt.Printf("v1 login failed: status=%d, body=%s\n", resp.StatusCode(), string(resp.Body()))
+	}
+	return fmt.Errorf("login failed: status=%d", resp.StatusCode())
 }
 
 // applyLoginResponse parses login response and extracts access token

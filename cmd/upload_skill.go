@@ -46,6 +46,13 @@ var uploadSkillCmd = &cobra.Command{
 }
 
 func uploadSingleSkill(skillPath string, skillService *skill.SkillService) {
+	// Expand ~ to home directory
+	if strings.HasPrefix(skillPath, "~") {
+		homeDir, err := os.UserHomeDir()
+		checkError(err)
+		skillPath = filepath.Join(homeDir, skillPath[1:])
+	}
+
 	// Expand path
 	absPath, err := filepath.Abs(skillPath)
 	checkError(err)
@@ -61,6 +68,13 @@ func uploadSingleSkill(skillPath string, skillService *skill.SkillService) {
 }
 
 func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
+	// Expand ~ to home directory
+	if strings.HasPrefix(folderPath, "~") {
+		homeDir, err := os.UserHomeDir()
+		checkError(err)
+		folderPath = filepath.Join(homeDir, folderPath[1:])
+	}
+
 	// List subdirectories
 	entries, err := os.ReadDir(folderPath)
 	checkError(err)

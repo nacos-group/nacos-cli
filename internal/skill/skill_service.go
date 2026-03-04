@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,49 +51,76 @@ func NewSkillService(nacosClient *client.NacosClient) *SkillService {
 	}
 }
 
+// SkillListResponse represents the response from skill list API
+type SkillListResponse struct {
+	TotalCount     int             `json:"totalCount"`
+	PageNumber     int             `json:"pageNumber"`
+	PagesAvailable int             `json:"pagesAvailable"`
+	PageItems      []SkillListItem `json:"pageItems"`
+}
+
+// V3Response represents the v3 API response wrapper
+type V3Response struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
 // ListSkills lists all skills with name and description
 func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]SkillListItem, int, error) {
-	// Build group filter with skill name if provided
-	groupFilter := "skill_*"
+	params := url.Values{}
+	params.Set("pageNo", fmt.Sprintf("%d", pageNo))
+	params.Set("pageSize", fmt.Sprintf("%d", pageSize))
+	params.Set("namespaceId", s.client.Namespace)
+
 	if skillName != "" {
-		groupFilter = fmt.Sprintf("skill_*%s*", skillName)
+		params.Set("skillName", skillName)
 	}
 
-	// List configs with dataId=skill.json and groupName filter
-	configs, err := s.client.ListConfigs("skill.json", groupFilter, "", pageNo, pageSize)
+	listURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/list?%s",
+		s.client.ServerAddr, params.Encode())
+
+	req, err := http.NewRequest("GET", listURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var skills []SkillListItem
-	for _, config := range configs.PageItems {
-		groupName := config.GroupName
-		if groupName == "" {
-			groupName = config.Group
-		}
-
-		if config.DataID == "skill.json" && strings.HasPrefix(groupName, "skill_") {
-			skillName := strings.TrimPrefix(groupName, "skill_")
-
-			// Extract description from content
-			description := ""
-			if config.Content != "" {
-				var skillData struct {
-					Description string `json:"description"`
-				}
-				if err := json.Unmarshal([]byte(config.Content), &skillData); err == nil {
-					description = skillData.Description
-				}
-			}
-
-			skills = append(skills, SkillListItem{
-				Name:        skillName,
-				Description: description,
-			})
-		}
+	if s.client.AccessToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
 	}
 
-	return skills, configs.TotalCount, nil
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list skills failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, 0, fmt.Errorf("list skills failed: status=%d, body=%s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read response failed: %w", err)
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return nil, 0, fmt.Errorf("parse response failed: %w", err)
+	}
+
+	if v3Resp.Code != 0 {
+		return nil, 0, fmt.Errorf("list skills failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	var skillList SkillListResponse
+	if err := json.Unmarshal(v3Resp.Data, &skillList); err != nil {
+		return nil, 0, fmt.Errorf("parse skill list failed: %w", err)
+	}
+
+	return skillList.PageItems, skillList.TotalCount, nil
 }
 
 // GetSkill retrieves a skill and saves it to local directory
@@ -309,8 +337,8 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	}
 
 	// Send HTTP request
-	uploadURL := fmt.Sprintf("http://%s:8080/v3/console/ai/skills/upload?namespaceId=%s",
-		strings.Split(s.client.ServerAddr, ":")[0], s.client.Namespace)
+	uploadURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s",
+		s.client.ServerAddr, s.client.Namespace)
 	req, err := http.NewRequest("POST", uploadURL, body)
 	if err != nil {
 		return err

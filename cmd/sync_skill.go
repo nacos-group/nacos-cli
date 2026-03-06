@@ -15,6 +15,7 @@ import (
 
 var (
 	syncAllSkills bool
+	syncOutputDir string
 )
 
 var syncSkillCmd = &cobra.Command{
@@ -62,7 +63,7 @@ var syncSkillCmd = &cobra.Command{
 		nacosClient := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey)
 
 		// Create skill syncer
-		skillSyncer := sync.NewSkillSyncer(nacosClient, "")
+		skillSyncer := sync.NewSkillSyncer(nacosClient, syncOutputDir)
 
 		// Setup signal handling
 		stopCh := make(chan struct{})
@@ -94,5 +95,6 @@ var syncSkillCmd = &cobra.Command{
 
 func init() {
 	syncSkillCmd.Flags().BoolVar(&syncAllSkills, "all", false, "Synchronize all skills")
+	syncSkillCmd.Flags().StringVarP(&syncOutputDir, "dir", "d", "", "Output directory for synced skills (default: ~/.skills)")
 	rootCmd.AddCommand(syncSkillCmd)
 }

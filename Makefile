@@ -7,7 +7,7 @@ BINARY_NAME=nacos-cli
 BUILD_DIR=build
 
 # Version
-VERSION?=0.0.1
+VERSION?=0.0.5
 
 # Go parameters
 GOCMD=go
@@ -24,23 +24,36 @@ build:
 	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) -v
 
 # Build for all platforms
-build-all: build-linux build-darwin build-windows
+build-all: build-linux build-darwin build-windows package-all
 
 build-linux:
 	@echo "Building for Linux..."
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-linux-amd64 -v
+	GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-linux-arm64 -v
 
 build-darwin:
 	@echo "Building for macOS..."
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-amd64 -v
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-arm64 -v
 
 build-windows:
 	@echo "Building for Windows..."
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	GOOS=windows GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-windows-amd64.exe -v
+	GOOS=windows GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-windows-arm64.exe -v
+
+# Package all binaries into versioned directory as zip files
+package-all:
+	@echo "Packaging binaries..."
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	@cd $(BUILD_DIR) && for f in $(BINARY_NAME)-$(VERSION)-linux-amd64 $(BINARY_NAME)-$(VERSION)-linux-arm64 $(BINARY_NAME)-$(VERSION)-darwin-amd64 $(BINARY_NAME)-$(VERSION)-darwin-arm64; do \
+		zip "$(VERSION)/$$f.zip" "$$f"; \
+	done
+	@cd $(BUILD_DIR) && zip "$(VERSION)/$(BINARY_NAME)-$(VERSION)-windows-amd64.zip" "$(BINARY_NAME)-$(VERSION)-windows-amd64.exe"
+	@cd $(BUILD_DIR) && zip "$(VERSION)/$(BINARY_NAME)-$(VERSION)-windows-arm64.zip" "$(BINARY_NAME)-$(VERSION)-windows-arm64.exe"
+	@echo "Packaged to $(BUILD_DIR)/$(VERSION)/"
 
 # Clean build artifacts
 clean:

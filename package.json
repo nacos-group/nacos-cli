@@ -1,0 +1,28 @@
+{
+  "name": "nacos-cli",
+  "version": "0.0.5",
+  "description": "A command-line tool for managing Nacos configurations and AI skills",
+  "bin": {
+    "nacos-cli": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "build/nacos-cli-*"
+  ],
+  "keywords": [
+    "nacos",
+    "cli",
+    "configuration",
+    "ai",
+    "skills"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nacos-group/nacos-cli.git"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

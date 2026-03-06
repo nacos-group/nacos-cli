@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,12 @@ type SkillInfo struct {
 	Description string `json:"description" yaml:"description"`
 }
 
+// SkillListItem represents a skill item in the list with name and description
+type SkillListItem struct {
+	Name        string
+	Description string
+}
+
 // Skill represents a complete skill
 type Skill struct {
 	Name        string              `json:"name"`
@@ -44,34 +51,76 @@ func NewSkillService(nacosClient *client.NacosClient) *SkillService {
 	}
 }
 
-// ListSkills lists all skills
-func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]string, int, error) {
-	// Build group filter with skill name if provided
-	groupFilter := "skill_*"
+// SkillListResponse represents the response from skill list API
+type SkillListResponse struct {
+	TotalCount     int             `json:"totalCount"`
+	PageNumber     int             `json:"pageNumber"`
+	PagesAvailable int             `json:"pagesAvailable"`
+	PageItems      []SkillListItem `json:"pageItems"`
+}
+
+// V3Response represents the v3 API response wrapper
+type V3Response struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
+// ListSkills lists all skills with name and description
+func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]SkillListItem, int, error) {
+	params := url.Values{}
+	params.Set("pageNo", fmt.Sprintf("%d", pageNo))
+	params.Set("pageSize", fmt.Sprintf("%d", pageSize))
+	params.Set("namespaceId", s.client.Namespace)
+
 	if skillName != "" {
-		groupFilter = fmt.Sprintf("skill_*%s*", skillName)
+		params.Set("skillName", skillName)
 	}
 
-	// List configs with dataId=skill.json and groupName filter
-	configs, err := s.client.ListConfigs("skill.json", groupFilter, "", pageNo, pageSize)
+	listURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/list?%s",
+		s.client.ServerAddr, params.Encode())
+
+	req, err := http.NewRequest("GET", listURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	var skills []string
-	for _, config := range configs.PageItems {
-		groupName := config.GroupName
-		if groupName == "" {
-			groupName = config.Group
-		}
-
-		if config.DataID == "skill.json" && strings.HasPrefix(groupName, "skill_") {
-			skillName := strings.TrimPrefix(groupName, "skill_")
-			skills = append(skills, skillName)
-		}
+	if s.client.AccessToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
 	}
 
-	return skills, configs.TotalCount, nil
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list skills failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, 0, fmt.Errorf("list skills failed: status=%d, body=%s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read response failed: %w", err)
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return nil, 0, fmt.Errorf("parse response failed: %w", err)
+	}
+
+	if v3Resp.Code != 0 {
+		return nil, 0, fmt.Errorf("list skills failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	var skillList SkillListResponse
+	if err := json.Unmarshal(v3Resp.Data, &skillList); err != nil {
+		return nil, 0, fmt.Errorf("parse skill list failed: %w", err)
+	}
+
+	return skillList.PageItems, skillList.TotalCount, nil
 }
 
 // GetSkill retrieves a skill and saves it to local directory
@@ -288,14 +337,19 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	}
 
 	// Send HTTP request
-	uploadURL := fmt.Sprintf("http://%s:8080/v3/console/ai/skills/upload?namespaceId=%s",
-		strings.Split(s.client.ServerAddr, ":")[0], s.client.Namespace)
+	uploadURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s",
+		s.client.ServerAddr, s.client.Namespace)
 	req, err := http.NewRequest("POST", uploadURL, body)
 	if err != nil {
 		return err
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// Add authentication header
+	if s.client.AccessToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
+	}
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

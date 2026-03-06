@@ -55,6 +55,9 @@ It supports configuration management, skill management, and provides an interact
 					// Use default port 8848
 					serverAddr = fmt.Sprintf("%s:8848", host)
 				}
+			} else if port > 0 {
+				// Only port specified, use default host
+				serverAddr = fmt.Sprintf("127.0.0.1:%d", port)
 			} else if fileConfig != nil {
 				// Use from config file
 				serverAddr = fileConfig.GetServerAddr()

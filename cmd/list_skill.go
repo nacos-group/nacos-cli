@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	skillListPage    int
-	skillListSize    int
-	skillListName    string
+	skillListPage     int
+	skillListSize     int
+	skillListName     string
 	skillListShowDesc bool
 )
 

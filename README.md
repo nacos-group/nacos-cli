@@ -73,19 +73,22 @@ nacos> help
 #### List Skills
 
 ```bash
-# CLI mode
+# CLI mode (description shown by default, truncated at 50 chars)
 nacos-cli skill-list -s 127.0.0.1:8848 -u nacos -p nacos
 
 # With filters
 nacos-cli skill-list --name skill-creator --page 1 --size 20
 
-# Show skill description
-nacos-cli skill-list --desc
+# Hide skill description
+nacos-cli skill-list --no-desc
+
+# Customize description length limit
+nacos-cli skill-list --desc-limit 80
 
 # Terminal mode
 nacos> skill-list
 nacos> skill-list --name skill-creator --page 2
-nacos> skill-list --desc
+nacos> skill-list --no-desc
 ```
 
 #### Get/Download Skill

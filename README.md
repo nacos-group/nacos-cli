@@ -32,13 +32,13 @@ nacos-cli --help
 
 ### Download Binary
 
-Download the latest release from [GitHub Releases](https://github.com/yourusername/nacos-cli/releases).
+Download the latest release from [GitHub Releases](https://github.com/nacos-group/nacos-cli/releases).
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/nacos-cli.git
+git clone https://github.com/nacos-group/nacos-cli.git
 cd nacos-cli
 
 # Build

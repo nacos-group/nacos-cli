@@ -8,6 +8,7 @@ import (
 
 	"github.com/nov11/nacos-cli/internal/agentspec"
 	"github.com/nov11/nacos-cli/internal/help"
+	"github.com/nov11/nacos-cli/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -32,15 +33,9 @@ var getAgentSpecCmd = &cobra.Command{
 			getAgentSpecOutput = filepath.Join(homeDir, ".agentspecs")
 		} else {
 			// Expand ~ to home directory
-			if strings.HasPrefix(getAgentSpecOutput, "~/") {
-				homeDir, err := os.UserHomeDir()
-				checkError(err)
-				getAgentSpecOutput = filepath.Join(homeDir, getAgentSpecOutput[2:])
-			} else if getAgentSpecOutput == "~" {
-				homeDir, err := os.UserHomeDir()
-				checkError(err)
-				getAgentSpecOutput = homeDir
-			}
+			expanded, err := util.ExpandTilde(getAgentSpecOutput)
+			checkError(err)
+			getAgentSpecOutput = expanded
 		}
 
 		// Create Nacos client

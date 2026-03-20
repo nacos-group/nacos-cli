@@ -8,6 +8,7 @@ import (
 
 	"github.com/nov11/nacos-cli/internal/agentspec"
 	"github.com/nov11/nacos-cli/internal/help"
+	"github.com/nov11/nacos-cli/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -46,11 +47,9 @@ var uploadAgentSpecCmd = &cobra.Command{
 
 func uploadSingleAgentSpec(specPath string, agentSpecService *agentspec.AgentSpecService) {
 	// Expand ~ to home directory
-	if strings.HasPrefix(specPath, "~") {
-		homeDir, err := os.UserHomeDir()
-		checkError(err)
-		specPath = filepath.Join(homeDir, specPath[1:])
-	}
+	expanded, err := util.ExpandTilde(specPath)
+	checkError(err)
+	specPath = expanded
 
 	// Expand path
 	absPath, err := filepath.Abs(specPath)
@@ -68,11 +67,9 @@ func uploadSingleAgentSpec(specPath string, agentSpecService *agentspec.AgentSpe
 
 func uploadAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpecService) {
 	// Expand ~ to home directory
-	if strings.HasPrefix(folderPath, "~") {
-		homeDir, err := os.UserHomeDir()
-		checkError(err)
-		folderPath = filepath.Join(homeDir, folderPath[1:])
-	}
+	expanded, err := util.ExpandTilde(folderPath)
+	checkError(err)
+	folderPath = expanded
 
 	// List subdirectories
 	entries, err := os.ReadDir(folderPath)

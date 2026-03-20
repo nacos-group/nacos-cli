@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/nov11/nacos-cli/internal/help"
 	"github.com/nov11/nacos-cli/internal/skill"
+	"github.com/nov11/nacos-cli/internal/util"
 	"github.com/spf13/cobra"
 )
 
@@ -37,8 +39,11 @@ var listSkillCmd = &cobra.Command{
 			return
 		}
 
+		asciiMode := os.Getenv("NO_UNICODE_OUTPUT") != ""
+		separator := util.SeparatorLine(79, asciiMode)
+
 		fmt.Printf("Skill List (Total: %d)\n", totalCount)
-		fmt.Println("═══════════════════════════════════════════════════════════════════════════════")
+		fmt.Println(separator)
 		for i, skill := range skills {
 			if skill.Description != "" {
 				desc := truncateDesc(skill.Description, defaultDescLimit)

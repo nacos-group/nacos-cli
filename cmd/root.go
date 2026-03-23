@@ -154,6 +154,12 @@ Examples:
 	},
 }
 
+// SetVersionInfo sets the version information for the root command.
+// Called from main.go with values injected via ldflags.
+func SetVersionInfo(version, commit, date string) {
+	rootCmd.Version = fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date)
+}
+
 // Execute runs the root command
 func Execute() error {
 	return rootCmd.Execute()

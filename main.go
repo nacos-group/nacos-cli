@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/nov11/nacos-cli/cmd"
+	"github.com/nacos-group/nacos-cli/cmd"
 )
 
 func main() {

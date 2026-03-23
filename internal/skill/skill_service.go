@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nov11/nacos-cli/internal/client"
+	"github.com/nacos-group/nacos-cli/internal/client"
 	"gopkg.in/yaml.v3"
 )
 

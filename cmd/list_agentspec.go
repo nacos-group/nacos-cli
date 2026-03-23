@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nov11/nacos-cli/internal/agentspec"
-	"github.com/nov11/nacos-cli/internal/help"
-	"github.com/nov11/nacos-cli/internal/util"
+	"github.com/nacos-group/nacos-cli/internal/agentspec"
+	"github.com/nacos-group/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/util"
 	"github.com/spf13/cobra"
 )
 

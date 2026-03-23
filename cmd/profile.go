@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/config"
-	"github.com/nov11/nacos-cli/internal/terminal"
+	"github.com/nacos-group/nacos-cli/internal/client"
+	"github.com/nacos-group/nacos-cli/internal/config"
+	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
 

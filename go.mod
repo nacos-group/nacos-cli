@@ -1,4 +1,4 @@
-module github.com/nov11/nacos-cli
+module github.com/nacos-group/nacos-cli
 
 go 1.21
 

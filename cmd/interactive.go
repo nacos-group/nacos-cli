@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/nov11/nacos-cli/internal/terminal"
+	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
 

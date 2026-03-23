@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/chzyer/readline"
-	"github.com/nov11/nacos-cli/internal/agentspec"
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/help"
-	"github.com/nov11/nacos-cli/internal/skill"
+	"github.com/nacos-group/nacos-cli/internal/agentspec"
+	"github.com/nacos-group/nacos-cli/internal/client"
+	"github.com/nacos-group/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/skill"
 )
 
 const defaultDescLimit = 200

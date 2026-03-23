@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/nov11/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/help"
 	"github.com/spf13/cobra"
 )
 

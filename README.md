@@ -7,10 +7,11 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 - 🚀 Fast and lightweight - single binary with no dependencies
 - 💻 Interactive terminal mode with auto-completion
 - 🎯 Skill management - upload, download, list, and sync AI skills
+- 🤖 AgentSpec management - upload, download, and list AI agent specs
 - 📝 Configuration management - list and get configurations
 - 🔄 Real-time skill synchronization with Nacos
 - 🌐 Namespace support for multi-environment management
-- 📦 Batch operations - upload all skills at once
+- 📦 Batch operations - upload all skills and agent specs at once
 
 ## Installation
 
@@ -83,6 +84,60 @@ nacos> help
 ```
 
 ## Commands
+
+### AgentSpec Management
+
+#### List AgentSpecs
+
+```bash
+# CLI mode (description shown by default, truncated at 200 chars)
+nacos-cli agentspec-list -s 127.0.0.1:8848 -u nacos -p nacos
+
+# With filters
+nacos-cli agentspec-list --name my-agentspec --page 1 --size 20
+
+# Terminal mode
+nacos> agentspec-list
+nacos> agentspec-list --name my-agentspec --page 2
+```
+
+#### Get/Download AgentSpec
+
+Download an agent spec to local directory (default: `~/.agentspecs`):
+
+```bash
+# CLI mode
+nacos-cli agentspec-get my-agentspec -s 127.0.0.1:8848 -u nacos -p nacos
+nacos-cli agentspec-get my-agentspec -o /custom/path
+
+# Download specific version
+nacos-cli agentspec-get my-agentspec --version v1
+
+# Download by route label
+nacos-cli agentspec-get my-agentspec --label latest
+
+# Download multiple agent specs
+nacos-cli agentspec-get spec1 spec2 spec3
+
+# Terminal mode
+nacos> agentspec-get my-agentspec
+```
+
+#### Upload AgentSpec
+
+Upload an agent spec from local directory:
+
+```bash
+# Upload single agent spec
+nacos-cli agentspec-upload /path/to/agentspec -s 127.0.0.1:8848 -u nacos -p nacos
+
+# Upload all agent specs in a directory
+nacos-cli agentspec-upload --all /path/to/agentspecs/folder
+
+# Terminal mode
+nacos> agentspec-upload /path/to/agentspec
+nacos> agentspec-upload --all /path/to/agentspecs
+```
 
 ### Skill Management
 
@@ -264,12 +319,16 @@ nacos-cli/
 │   ├── get_skill.go     # skill-get command
 │   ├── upload_skill.go  # skill-upload command
 │   ├── sync_skill.go    # skill-sync command
+│   ├── list_agentspec.go   # agentspec-list command
+│   ├── get_agentspec.go    # agentspec-get command
+│   ├── upload_agentspec.go # agentspec-upload command
 │   ├── list_config.go   # config-list command
 │   ├── get_config.go    # config-get command
 │   └── interactive.go   # Interactive terminal
 ├── internal/
 │   ├── client/          # Nacos client
 │   ├── skill/           # Skill service
+│   ├── agentspec/       # AgentSpec service
 │   ├── sync/            # Sync service
 │   ├── listener/        # Config listener
 │   ├── terminal/        # Terminal implementation
@@ -326,9 +385,10 @@ MIT License
 
 - Rewritten in Go for better performance and portability
 - Added skill management commands (list, get, upload, sync)
+- Added agent spec management commands (list, get, upload)
 - Added real-time skill synchronization with Nacos
 - Added interactive terminal mode with auto-completion
-- Added batch upload support for multiple skills
+- Added batch upload support for multiple skills and agent specs
 - Added configuration management commands
 - Improved error handling and user experience
 - Removed all emoji clutter from terminal output

@@ -35,6 +35,29 @@ func NewTerminal(nacosClient *client.NacosClient) *Terminal {
 	}
 }
 
+// getPrompt returns the prompt string with user info
+func (t *Terminal) getPrompt() string {
+	// Show abbreviated user info in prompt
+	switch t.client.AuthType {
+	case client.AuthTypeNacos:
+		if t.client.Username != "" {
+			return fmt.Sprintf("\033[32m%s@nacos>\033[0m ", t.client.Username)
+		}
+	case client.AuthTypeAliyun:
+		if t.client.AccessKey != "" {
+			// Show first 8 chars of access key
+			ak := t.client.AccessKey
+			if len(ak) > 8 {
+				ak = ak[:8]
+			}
+			return fmt.Sprintf("\033[32m%s@nacos>\033[0m ", ak)
+		}
+	case client.AuthTypeToken:
+		return "\033[32m(token)nacos>\033[0m "
+	}
+	return "\033[32mnacos>\033[0m "
+}
+
 // completer provides command auto-completion
 func completer() *readline.PrefixCompleter {
 	return readline.NewPrefixCompleter(
@@ -92,7 +115,7 @@ func (t *Terminal) Start() error {
 	historyFile := filepath.Join(os.TempDir(), ".nacos-cli-history")
 
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          "\033[32mnacos>\033[0m ",
+		Prompt:          t.getPrompt(),
 		HistoryFile:     historyFile,
 		AutoComplete:    completer(),
 		InterruptPrompt: "^C",
@@ -139,6 +162,21 @@ func (t *Terminal) printWelcome() {
 	if t.client.Namespace != "" {
 		fmt.Printf("\033[33mNamespace:\033[0m %s\n", t.client.Namespace)
 	}
+	// Show user info based on auth type
+	switch t.client.AuthType {
+	case client.AuthTypeNacos:
+		if t.client.Username != "" {
+			fmt.Printf("\033[33mUser:\033[0m %s (username/password)\n", t.client.Username)
+		}
+	case client.AuthTypeAliyun:
+		if t.client.AccessKey != "" {
+			fmt.Printf("\033[33mUser:\033[0m %s (AccessKey)\n", t.client.AccessKey)
+		}
+	case client.AuthTypeToken:
+		fmt.Printf("\033[33mAuth:\033[0m Token (authenticated)\n")
+	case client.AuthTypeNone:
+		fmt.Printf("\033[33mAuth:\033[0m None (public access)\n")
+	}
 	fmt.Println()
 	fmt.Println("\033[90mType '\033[0mhelp\033[90m' for available commands\033[0m")
 	fmt.Println("\033[90mPress '\033[0mTab\033[90m' for auto-completion\033[0m")
@@ -146,15 +184,61 @@ func (t *Terminal) printWelcome() {
 	fmt.Println()
 }
 
-// handleCommand handles user command
-func (t *Terminal) handleCommand(input string) {
+// parseCommandArgs parses command line arguments, properly handling flags and their values
+// For example: "skill-get my-skill --label latest -o /path" should recognize:
+//   - skill name: my-skill
+//   - flags: --label latest, -o /path
+// This prevents flags and their values from being treated as additional skill names
+func parseCommandArgs(input string) (cmd string, args []string) {
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
-		return
+		return "", nil
 	}
 
-	cmd := parts[0]
-	args := parts[1:]
+	cmd = parts[0]
+	args = make([]string, 0, len(parts)-1)
+
+	// Parse remaining parts, handling flags properly
+	for i := 1; i < len(parts); i++ {
+		arg := parts[i]
+		
+		// Check if this is a flag
+		if strings.HasPrefix(arg, "-") {
+			args = append(args, arg)
+			// Check if flag takes a value (not a boolean flag like --help or --all)
+			// Flags that don't take values
+			booleanFlags := map[string]bool{
+				"--help": true, "-h": true,
+				"--all": true,
+			}
+			
+			// If it's a long flag (--flag), check if value is separate
+			if strings.HasPrefix(arg, "--") && !strings.Contains(arg, "=") {
+				if !booleanFlags[arg] && i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
+					// Next arg is the value, skip it in main args (it will be handled by flag parser)
+					args = append(args, parts[i+1])
+					i++ // Skip next arg since we consumed it
+				}
+			} else if strings.HasPrefix(arg, "-") && !strings.Contains(arg, "=") {
+				// Short flag (-o), check if value is separate
+				if !booleanFlags[arg] && len(arg) == 2 && i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
+					// Next arg is the value
+					args = append(args, parts[i+1])
+					i++ // Skip next arg
+				}
+			}
+		} else {
+			// Not a flag, treat as positional argument
+			args = append(args, arg)
+		}
+	}
+
+	return cmd, args
+}
+
+// handleCommand handles user command
+func (t *Terminal) handleCommand(input string) {
+	cmd, args := parseCommandArgs(input)
 
 	switch cmd {
 	case "help":
@@ -296,7 +380,37 @@ func (t *Terminal) showServerInfo() {
 	fmt.Printf("  Server:    %s\n", t.client.ServerAddr)
 	fmt.Printf("  Username:  %s\n", t.client.Username)
 	fmt.Printf("  Namespace: %s\n", t.client.Namespace)
+	fmt.Printf("  Auth Type: %s\n", t.getAuthTypeDisplay())
 	fmt.Println("─────────────────────────────────────────────────────────")
+}
+
+// getAuthTypeDisplay returns a human-readable auth type description
+func (t *Terminal) getAuthTypeDisplay() string {
+	switch t.client.AuthType {
+	case client.AuthTypeNacos:
+		if t.client.Username != "" {
+			return fmt.Sprintf("nacos (user: %s)", t.client.Username)
+		}
+		return "nacos"
+	case client.AuthTypeAliyun:
+		if t.client.AccessKey != "" {
+			return fmt.Sprintf("aliyun (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
+		}
+		return "aliyun"
+	case client.AuthTypeToken:
+		return "token (authenticated)"
+	case client.AuthTypeNone:
+		return "none (public access)"
+	default:
+		return t.client.AuthType
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // namespace shows or switches namespace
@@ -394,26 +508,83 @@ func (t *Terminal) getSkill(args []string) {
 		return
 	}
 
-	// Default output directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("\033[31mError:\033[0m %v\n", err)
+	// Parse flags from args
+	var skillNames []string
+	var outputDir string
+	var version, label string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		} else if arg == "-o" && i+1 < len(args) {
+			i++
+			outputDir = args[i]
+		} else if strings.HasPrefix(arg, "-o=") {
+			outputDir = strings.TrimPrefix(arg, "-o=")
+		} else if arg == "--label" && i+1 < len(args) {
+			i++
+			label = args[i]
+		} else if strings.HasPrefix(arg, "--label=") {
+			label = strings.TrimPrefix(arg, "--label=")
+		} else if strings.HasPrefix(arg, "-") {
+			// Unknown flag, skip
+			continue
+		} else {
+			// Positional argument (skill name)
+			skillNames = append(skillNames, arg)
+		}
+	}
+
+	if len(skillNames) == 0 {
+		fmt.Println("\033[31mError:\033[0m no skill names specified")
 		return
 	}
-	outputDir := filepath.Join(homeDir, ".skills")
+
+	// Default output directory
+	if outputDir == "" {
+		homeDir, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			fmt.Printf("\033[31mError:\033[0m %v\n", homeErr)
+			return
+		}
+		outputDir = filepath.Join(homeDir, ".skills")
+	} else {
+		// Expand ~ to home directory
+		if strings.HasPrefix(outputDir, "~/") {
+			homeDir, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				fmt.Printf("\033[31mError:\033[0m %v\n", homeErr)
+				return
+			}
+			outputDir = filepath.Join(homeDir, outputDir[2:])
+		} else if outputDir == "~" {
+			homeDir, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				fmt.Printf("\033[31mError:\033[0m %v\n", homeErr)
+				return
+			}
+			outputDir = homeDir
+		}
+	}
 
 	// Track results
 	var successCount, failCount int
 	var failedSkills []string
+	var err error
 
 	// Process each skill
-	for i, skillName := range args {
-		if len(args) > 1 {
-			fmt.Printf("\n\033[90m[%d/%d] \033[0m", i+1, len(args))
+	for i, skillName := range skillNames {
+		if len(skillNames) > 1 {
+			fmt.Printf("\n\033[90m[%d/%d] \033[0m", i+1, len(skillNames))
 		}
 		fmt.Printf("\033[90mDownloading skill: \033[33m%s\033[90m...\033[0m\n", skillName)
 
-		err = t.skillService.GetSkill(skillName, outputDir, "", "")
+		err = t.skillService.GetSkill(skillName, outputDir, version, label)
 		if err != nil {
 			fmt.Printf("\033[31mError:\033[0m failed to download skill '%s': %v\n", skillName, err)
 			failCount++
@@ -426,10 +597,10 @@ func (t *Terminal) getSkill(args []string) {
 	}
 
 	// Summary for multiple skills
-	if len(args) > 1 {
+	if len(skillNames) > 1 {
 		fmt.Println()
 		fmt.Println("\033[36m========== Summary ==========\033[0m")
-		fmt.Printf("Total: %d | \033[32mSuccess:\033[0m %d | \033[31mFailed:\033[0m %d\n", len(args), successCount, failCount)
+		fmt.Printf("Total: %d | \033[32mSuccess:\033[0m %d | \033[31mFailed:\033[0m %d\n", len(skillNames), successCount, failCount)
 		if failCount > 0 {
 			fmt.Printf("Failed skills: \033[31m%s\033[0m\n", strings.Join(failedSkills, ", "))
 		}
@@ -911,26 +1082,83 @@ func (t *Terminal) getAgentSpec(args []string) {
 		return
 	}
 
-	// Default output directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("\033[31mError:\033[0m %v\n", err)
+	// Parse flags from args
+	var specNames []string
+	var outputDir string
+	var version, label string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		} else if arg == "-o" && i+1 < len(args) {
+			i++
+			outputDir = args[i]
+		} else if strings.HasPrefix(arg, "-o=") {
+			outputDir = strings.TrimPrefix(arg, "-o=")
+		} else if arg == "--label" && i+1 < len(args) {
+			i++
+			label = args[i]
+		} else if strings.HasPrefix(arg, "--label=") {
+			label = strings.TrimPrefix(arg, "--label=")
+		} else if strings.HasPrefix(arg, "-") {
+			// Unknown flag, skip
+			continue
+		} else {
+			// Positional argument (spec name)
+			specNames = append(specNames, arg)
+		}
+	}
+
+	if len(specNames) == 0 {
+		fmt.Println("\033[31mError:\033[0m no agent spec names specified")
 		return
 	}
-	outputDir := filepath.Join(homeDir, ".agentspecs")
+
+	// Default output directory
+	if outputDir == "" {
+		homeDir, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			fmt.Printf("\033[31mError:\033[0m %v\n", homeErr)
+			return
+		}
+		outputDir = filepath.Join(homeDir, ".agentspecs")
+	} else {
+		// Expand ~ to home directory
+		if strings.HasPrefix(outputDir, "~/") {
+			homeDir, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				fmt.Printf("\033[31mError:\033[0m %v\n", homeErr)
+				return
+			}
+			outputDir = filepath.Join(homeDir, outputDir[2:])
+		} else if outputDir == "~" {
+			homeDir, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				fmt.Printf("\033[31mError:\033[0m %v\n", homeErr)
+				return
+			}
+			outputDir = homeDir
+		}
+	}
 
 	// Track results
 	var successCount, failCount int
 	var failedSpecs []string
+	var err error
 
-	// Process each agent spec
-	for i, specName := range args {
-		if len(args) > 1 {
-			fmt.Printf("\n\033[90m[%d/%d] \033[0m", i+1, len(args))
+	// Process each spec
+	for i, specName := range specNames {
+		if len(specNames) > 1 {
+			fmt.Printf("\n\033[90m[%d/%d] \033[0m", i+1, len(specNames))
 		}
 		fmt.Printf("\033[90mDownloading agent spec: \033[33m%s\033[90m...\033[0m\n", specName)
 
-		err = t.agentSpecService.GetAgentSpec(specName, outputDir, "", "")
+		err = t.agentSpecService.GetAgentSpec(specName, outputDir, version, label)
 		if err != nil {
 			fmt.Printf("\033[31mError:\033[0m failed to download agent spec '%s': %v\n", specName, err)
 			failCount++
@@ -943,10 +1171,10 @@ func (t *Terminal) getAgentSpec(args []string) {
 	}
 
 	// Summary for multiple specs
-	if len(args) > 1 {
+	if len(specNames) > 1 {
 		fmt.Println()
 		fmt.Println("\033[36m========== Summary ==========\033[0m")
-		fmt.Printf("Total: %d | \033[32mSuccess:\033[0m %d | \033[31mFailed:\033[0m %d\n", len(args), successCount, failCount)
+		fmt.Printf("Total: %d | \033[32mSuccess:\033[0m %d | \033[31mFailed:\033[0m %d\n", len(specNames), successCount, failCount)
 		if failCount > 0 {
 			fmt.Printf("Failed agent specs: \033[31m%s\033[0m\n", strings.Join(failedSpecs, ", "))
 		}

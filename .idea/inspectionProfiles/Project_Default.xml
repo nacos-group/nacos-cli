@@ -1,0 +1,38 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="AklessInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="AuthTagInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="JavaPlaintextAkInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="MissApiTokenInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="RCE-Aviator" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Groovy" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Jdbc" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Jpython" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Mvel" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Ognl" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Qlexpress" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-ScriptEngine" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Spel" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-Yaml" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-bsh" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-desearialize" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-kubeconfig" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RCE-staragent" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="RamcheckerSingletonInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="RceJdbcInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="ReusableAuthContextOrRequestInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="SSRF" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="SSTI-FreeMarker" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="SSTI-Jinjia" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="SSTI-Pebble" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="SSTI-Thymeleaf" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="SSTI-Velocity" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="ScaInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="SourceInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="StartSSRFNetHookCheckingInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="WithSSRFCheckingInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="XmlPlaintextAkInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+    <inspection_tool class="YamlPlaintextAkInspection" enabled="true" level="WARNING" enabled_by_default="true" />
+  </profile>
+</component>

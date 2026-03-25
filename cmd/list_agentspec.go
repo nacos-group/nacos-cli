@@ -14,7 +14,6 @@ var (
 	agentSpecListPage   int
 	agentSpecListSize   int
 	agentSpecListName   string
-	agentSpecSearchMode string
 )
 
 var listAgentSpecCmd = &cobra.Command{
@@ -29,7 +28,7 @@ var listAgentSpecCmd = &cobra.Command{
 		agentSpecService := agentspec.NewAgentSpecService(nacosClient)
 
 		// List agent specs
-		specs, totalCount, err := agentSpecService.ListAgentSpecs(agentSpecListName, agentSpecSearchMode, agentSpecListPage, agentSpecListSize)
+		specs, totalCount, err := agentSpecService.ListAgentSpecs(agentSpecListName, "", agentSpecListPage, agentSpecListSize)
 		checkError(err)
 
 		// Display results
@@ -62,6 +61,5 @@ func init() {
 	listAgentSpecCmd.Flags().IntVar(&agentSpecListPage, "page", 1, "Page number (default: 1)")
 	listAgentSpecCmd.Flags().IntVar(&agentSpecListSize, "size", 20, "Page size (default: 20)")
 	listAgentSpecCmd.Flags().StringVar(&agentSpecListName, "name", "", "Filter by agent spec name")
-	listAgentSpecCmd.Flags().StringVar(&agentSpecSearchMode, "search", "", "Search mode: accurate or blur")
 	rootCmd.AddCommand(listAgentSpecCmd)
 }

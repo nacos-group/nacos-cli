@@ -154,7 +154,6 @@ var (
 		Description: "List all agent specs from Nacos configuration center.",
 		Parameters: []string{
 			"--name string     Filter by agent spec name",
-			"--search string   Search mode: accurate or blur",
 			"--page int        Page number (default: 1)",
 			"--size int        Page size (default: 20)",
 		},
@@ -162,8 +161,8 @@ var (
 			"# List all agent specs",
 			"agentspec-list",
 			"",
-			"# Search by name (blur)",
-			"agentspec-list --name \"worker\" --search blur",
+			"# Search by name",
+			"agentspec-list --name \"worker\"",
 			"",
 			"# With pagination",
 			"agentspec-list --page 2 --size 10",
@@ -197,26 +196,26 @@ var (
 		},
 	}
 
-	AgentSpecUpload = CommandHelp{
-		Command:     "agentspec-upload",
-		Description: "Upload an agent spec to Nacos by uploading it as a ZIP file (creates a draft version).\nReview and go-online operations should be done via the Nacos console.",
+	AgentSpecPublish = CommandHelp{
+		Command:     "agentspec-publish",
+		Description: "Publish an agent spec to Nacos by uploading it as a ZIP file (creates a draft version).\nReview and go-online operations should be done via the Nacos console.",
 		Parameters: []string{
 			"agentSpecPath   Required. Path to the agent spec directory or .zip file",
-			"--all           Upload all agent specs in the specified directory",
+			"--all           Publish all agent specs in the specified directory",
 		},
 		Examples: []string{
-			"# Upload a single agent spec",
-			"agentspec-upload ./my-worker",
+			"# Publish a single agent spec",
+			"agentspec-publish ./my-worker",
 			"",
-			"# Upload a pre-built zip file",
-			"agentspec-upload ./my-worker.zip",
+			"# Publish a pre-built zip file",
+			"agentspec-publish ./my-worker.zip",
 			"",
-			"# Upload all agent specs in a directory",
-			"agentspec-upload --all ./specs-folder",
+			"# Publish all agent specs in a directory",
+			"agentspec-publish --all ./specs-folder",
 			"",
 			"Note:",
 			"  - Agent spec directory must contain manifest.json",
-			"  - After uploading, use the Nacos console to review and go online",
+			"  - After publishing, use the Nacos console to review and go online",
 		},
 	}
 )

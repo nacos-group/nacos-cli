@@ -5,6 +5,28 @@ import (
 	"testing"
 )
 
+func TestBuildResourceRelativePath(t *testing.T) {
+	cases := []struct {
+		name string
+		res  *AgentSpecResource
+		want string
+	}{
+		{"nil", nil, ""},
+		{"type and basename", &AgentSpecResource{Type: "config", Name: "app.yaml"}, "config/app.yaml"},
+		{"nested type", &AgentSpecResource{Type: "skills/my-skill", Name: "SKILL.md"}, "skills/my-skill/SKILL.md"},
+		{"name already prefixed", &AgentSpecResource{Type: "config", Name: "config/app.yaml"}, "config/app.yaml"},
+		{"no type", &AgentSpecResource{Type: "", Name: "Dockerfile"}, "Dockerfile"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildResourceRelativePath(tc.res)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAgentSpecListItem_UnmarshalJSON(t *testing.T) {
 	// Test that nullable fields are handled correctly
 	jsonData := `{

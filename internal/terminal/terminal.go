@@ -84,7 +84,7 @@ func completer() *readline.PrefixCompleter {
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
 		),
-		readline.PcItem("agentspec-upload",
+		readline.PcItem("agentspec-publish",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
 			readline.PcItem("--all"),
@@ -278,11 +278,11 @@ func (t *Terminal) handleCommand(input string) {
 		} else {
 			t.getAgentSpec(args)
 		}
-	case "agentspec-upload":
+	case "agentspec-publish":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
-			t.showAgentSpecUploadHelp()
+			t.showAgentSpecPublishHelp()
 		} else {
-			t.uploadAgentSpec(args)
+			t.publishAgentSpec(args)
 		}
 	case "config-list":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
@@ -334,10 +334,10 @@ func (t *Terminal) showHelp() {
 	// AgentSpec Management
 	fmt.Println("\033[1;33mAgentSpec Management\033[0m")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-list", "List all agent specs", "agentspec-list [options]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --search, --page, --size", "")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size", "")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-get", "Download an agent spec to ~/.agentspecs", "agentspec-get <name> [--version v1] [--label stable]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-upload", "Upload an agent spec from local", "agentspec-upload <path>")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all agent specs in directory", "agentspec-upload --all <folder>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-publish", "Publish an agent spec from local", "agentspec-publish <path>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Publish all agent specs in directory", "agentspec-publish --all <folder>")
 	fmt.Println()
 
 	// Configuration Management
@@ -998,14 +998,14 @@ func (t *Terminal) showAgentSpecGetHelp() {
 	help.AgentSpecGet.FormatForTerminal()
 }
 
-func (t *Terminal) showAgentSpecUploadHelp() {
-	help.AgentSpecUpload.FormatForTerminal()
+func (t *Terminal) showAgentSpecPublishHelp() {
+	help.AgentSpecPublish.FormatForTerminal()
 }
 
 // listAgentSpecs lists all agent specs
 func (t *Terminal) listAgentSpecs(args []string) {
 	// Parse flags
-	var name, search string
+	var name string
 	var page, size int = 1, 20
 
 	for i := 0; i < len(args); i++ {
@@ -1015,11 +1015,6 @@ func (t *Terminal) listAgentSpecs(args []string) {
 		} else if arg == "--name" && i+1 < len(args) {
 			i++
 			name = args[i]
-		} else if strings.HasPrefix(arg, "--search=") {
-			search = strings.TrimPrefix(arg, "--search=")
-		} else if arg == "--search" && i+1 < len(args) {
-			i++
-			search = args[i]
 		} else if strings.HasPrefix(arg, "--page=") {
 			value := strings.TrimPrefix(arg, "--page=")
 			if value != "" {
@@ -1041,7 +1036,7 @@ func (t *Terminal) listAgentSpecs(args []string) {
 
 	fmt.Print("\033[90mFetching agent specs...\033[0m\r")
 
-	specs, totalCount, err := t.agentSpecService.ListAgentSpecs(name, search, page, size)
+	specs, totalCount, err := t.agentSpecService.ListAgentSpecs(name, "", page, size)
 	if err != nil {
 		fmt.Printf("\033[31mError:\033[0m %v\n", err)
 		return
@@ -1181,10 +1176,10 @@ func (t *Terminal) getAgentSpec(args []string) {
 	}
 }
 
-// uploadAgentSpec uploads an agent spec
-func (t *Terminal) uploadAgentSpec(args []string) {
+// publishAgentSpec publishes an agent spec (mirrors skill-publish).
+func (t *Terminal) publishAgentSpec(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: agentspec-upload <agentSpecPath> or agentspec-upload --all <folder>")
+		fmt.Println("Usage: agentspec-publish <agentSpecPath> or agentspec-publish --all <folder>")
 		return
 	}
 
@@ -1211,14 +1206,14 @@ func (t *Terminal) uploadAgentSpec(args []string) {
 	if allFlagIndex >= 0 {
 		if folderPath == "" {
 			fmt.Println("Error: folder path required for --all flag")
-			fmt.Println("Usage: agentspec-upload --all <folder> or agentspec-upload <folder> --all")
+			fmt.Println("Usage: agentspec-publish --all <folder> or agentspec-publish <folder> --all")
 			return
 		}
-		t.uploadAllAgentSpecs(folderPath)
+		t.publishAllAgentSpecs(folderPath)
 		return
 	}
 
-	// Single agent spec upload
+	// Single agent spec publish
 	specPath := args[0]
 
 	// Expand ~ to home directory
@@ -1238,7 +1233,7 @@ func (t *Terminal) uploadAgentSpec(args []string) {
 		specPath = homeDir
 	}
 
-	fmt.Printf("Uploading agent spec: %s...\n", specPath)
+	fmt.Printf("Publishing agent spec: %s...\n", specPath)
 
 	err := t.agentSpecService.UploadAgentSpec(specPath)
 	if err != nil {
@@ -1246,11 +1241,11 @@ func (t *Terminal) uploadAgentSpec(args []string) {
 		return
 	}
 
-	fmt.Printf("Agent spec uploaded successfully!\n")
+	fmt.Printf("Agent spec published successfully!\n")
 }
 
-// uploadAllAgentSpecs uploads all agent specs in a directory
-func (t *Terminal) uploadAllAgentSpecs(folderPath string) {
+// publishAllAgentSpecs publishes all agent specs in a directory
+func (t *Terminal) publishAllAgentSpecs(folderPath string) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~/") {
 		homeDir, err := os.UserHomeDir()
@@ -1304,16 +1299,16 @@ func (t *Terminal) uploadAllAgentSpecs(folderPath string) {
 
 	for i, specName := range specDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Uploading agent spec: %s\n", i+1, len(specDirs), specName)
+		fmt.Printf("[%d/%d] Publishing agent spec: %s\n", i+1, len(specDirs), specName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		specPath := filepath.Join(folderPath, specName)
 		err := t.agentSpecService.UploadAgentSpec(specPath)
 		if err != nil {
-			fmt.Printf("Upload failed: %v\n", err)
+			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
 		} else {
-			fmt.Printf("Upload successful!\n")
+			fmt.Printf("Publish successful!\n")
 			successCount++
 		}
 		fmt.Println()
@@ -1321,7 +1316,7 @@ func (t *Terminal) uploadAllAgentSpecs(folderPath string) {
 
 	// Summary
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Upload Complete")
+	fmt.Println("Batch Publish Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -1329,7 +1324,7 @@ func (t *Terminal) uploadAllAgentSpecs(folderPath string) {
 	}
 	fmt.Printf("Total: %d\n", len(specDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use 'agentspec-list' to view all uploaded agent specs")
+	fmt.Println("Tip: Use 'agentspec-list' to view all published agent specs")
 }
 
 // truncateDesc truncates description to maxLen and appends ...... if needed

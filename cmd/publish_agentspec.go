@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	agentSpecUploadAll bool
+	agentSpecPublishAll bool
 )
 
-var uploadAgentSpecCmd = &cobra.Command{
-	Use:   "agentspec-upload [agentSpecPath]",
-	Short: "Upload an agent spec to Nacos (upload as ZIP)",
-	Long:  help.AgentSpecUpload.FormatForCLI("nacos-cli"),
+var publishAgentSpecCmd = &cobra.Command{
+	Use:   "agentspec-publish [agentSpecPath]",
+	Short: "Publish an agent spec to Nacos (upload as ZIP)",
+	Long:  help.AgentSpecPublish.FormatForCLI("nacos-cli"),
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
@@ -28,50 +28,41 @@ var uploadAgentSpecCmd = &cobra.Command{
 		}
 		specPath := args[0]
 
-		// Create Nacos client
 		nacosClient := mustNewNacosClient()
-
-		// Create agentspec service
 		agentSpecService := agentspec.NewAgentSpecService(nacosClient)
 
-		// Handle batch upload
-		if agentSpecUploadAll {
-			uploadAllAgentSpecs(specPath, agentSpecService)
+		if agentSpecPublishAll {
+			publishAllAgentSpecs(specPath, agentSpecService)
 			return
 		}
 
-		// Single agent spec upload
-		uploadSingleAgentSpec(specPath, agentSpecService)
+		publishSingleAgentSpec(specPath, agentSpecService)
 	},
 }
 
-func uploadSingleAgentSpec(specPath string, agentSpecService *agentspec.AgentSpecService) {
-	// Expand ~ to home directory
+func publishSingleAgentSpec(specPath string, agentSpecService *agentspec.AgentSpecService) {
 	expanded, err := util.ExpandTilde(specPath)
 	checkError(err)
 	specPath = expanded
 
-	// Expand path
 	absPath, err := filepath.Abs(specPath)
 	checkError(err)
 
 	specName := filepath.Base(absPath)
-	fmt.Printf("Uploading agent spec: %s...\n", specName)
+	fmt.Printf("Publishing agent spec: %s...\n", specName)
 
 	err = agentSpecService.UploadAgentSpec(absPath)
 	checkError(err)
 
-	fmt.Printf("Agent spec uploaded successfully!\n")
+	fmt.Printf("Agent spec published successfully!\n")
 	fmt.Printf("  Tip: Use the Nacos console to review and go online, or use 'agentspec-list' to verify.\n")
 }
 
-func uploadAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpecService) {
-	// Expand ~ to home directory
+func publishAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpecService) {
 	expanded, err := util.ExpandTilde(folderPath)
 	checkError(err)
 	folderPath = expanded
 
-	// List subdirectories
 	entries, err := os.ReadDir(folderPath)
 	checkError(err)
 
@@ -81,7 +72,6 @@ func uploadAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpe
 			continue
 		}
 
-		// Check if manifest.json exists
 		manifestPath := filepath.Join(folderPath, entry.Name(), "manifest.json")
 		if _, err := os.Stat(manifestPath); err == nil {
 			specDirs = append(specDirs, entry.Name())
@@ -104,24 +94,23 @@ func uploadAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpe
 
 	for i, specName := range specDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Uploading agent spec: %s\n", i+1, len(specDirs), specName)
+		fmt.Printf("[%d/%d] Publishing agent spec: %s\n", i+1, len(specDirs), specName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		specPath := filepath.Join(folderPath, specName)
 		err := agentSpecService.UploadAgentSpec(specPath)
 		if err != nil {
-			fmt.Printf("Upload failed: %v\n", err)
+			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
 		} else {
-			fmt.Printf("Upload successful!\n")
+			fmt.Printf("Publish successful!\n")
 			successCount++
 		}
 		fmt.Println()
 	}
 
-	// Summary
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Upload Complete")
+	fmt.Println("Batch Publish Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -133,6 +122,6 @@ func uploadAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpe
 }
 
 func init() {
-	uploadAgentSpecCmd.Flags().BoolVar(&agentSpecUploadAll, "all", false, "Upload all agent specs in the directory")
-	rootCmd.AddCommand(uploadAgentSpecCmd)
+	publishAgentSpecCmd.Flags().BoolVar(&agentSpecPublishAll, "all", false, "Publish all agent specs in the directory")
+	rootCmd.AddCommand(publishAgentSpecCmd)
 }

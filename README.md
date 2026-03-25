@@ -123,20 +123,20 @@ nacos-cli agentspec-get spec1 spec2 spec3
 nacos> agentspec-get my-agentspec
 ```
 
-#### Upload AgentSpec
+#### Publish AgentSpec
 
-Upload an agent spec from local directory:
+Publish an agent spec from local directory:
 
 ```bash
-# Upload single agent spec
-nacos-cli agentspec-upload /path/to/agentspec -s 127.0.0.1:8848 -u nacos -p nacos
+# Publish single agent spec
+nacos-cli agentspec-publish /path/to/agentspec -s 127.0.0.1:8848 -u nacos -p nacos
 
-# Upload all agent specs in a directory
-nacos-cli agentspec-upload --all /path/to/agentspecs/folder
+# Publish all agent specs in a directory
+nacos-cli agentspec-publish --all /path/to/agentspecs/folder
 
 # Terminal mode
-nacos> agentspec-upload /path/to/agentspec
-nacos> agentspec-upload --all /path/to/agentspecs
+nacos> agentspec-publish /path/to/agentspec
+nacos> agentspec-publish --all /path/to/agentspecs
 ```
 
 ### Skill Management
@@ -321,7 +321,7 @@ nacos-cli/
 │   ├── sync_skill.go    # skill-sync command
 │   ├── list_agentspec.go   # agentspec-list command
 │   ├── get_agentspec.go    # agentspec-get command
-│   ├── upload_agentspec.go # agentspec-upload command
+│   ├── publish_agentspec.go # agentspec-publish command
 │   ├── list_config.go   # config-list command
 │   ├── get_config.go    # config-get command
 │   └── interactive.go   # Interactive terminal

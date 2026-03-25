@@ -22,15 +22,19 @@ type AgentSpecService struct {
 	client *client.NacosClient
 }
 
-// AgentSpecListItem represents an agentspec item in the admin list
+// AgentSpecListItem represents an agentspec item in the admin list (AgentSpecSummary in Nacos).
 type AgentSpecListItem struct {
+	NamespaceId      string            `json:"namespaceId,omitempty"`
 	Name             string            `json:"name"`
 	Description      *string           `json:"description"`
 	Enable           bool              `json:"enable"`
 	Labels           map[string]string `json:"labels"`
+	Scope            *string           `json:"scope,omitempty"`
+	BizTags          *string           `json:"bizTags,omitempty"`
 	EditingVersion   *string           `json:"editingVersion"`
 	ReviewingVersion *string           `json:"reviewingVersion"`
 	OnlineCnt        int               `json:"onlineCnt"`
+	DownloadCount    *int64            `json:"downloadCount,omitempty"`
 	UpdateTime       int64             `json:"updateTime"`
 }
 
@@ -47,6 +51,7 @@ type AgentSpec struct {
 	NamespaceId string                        `json:"namespaceId"`
 	Name        string                        `json:"name"`
 	Description string                        `json:"description"`
+	BizTags     string                        `json:"bizTags,omitempty"`
 	Content     string                        `json:"content"` // manifest.json string
 	Resource    map[string]*AgentSpecResource `json:"resource,omitempty"`
 }
@@ -137,6 +142,24 @@ func (s *AgentSpecService) ListAgentSpecs(agentSpecName string, search string, p
 	return listResp.PageItems, listResp.TotalCount, nil
 }
 
+// buildResourceRelativePath matches Nacos AgentSpecOperationServiceImpl.buildResourcePath:
+// if type is blank, use name only; if name already starts with "type/", use name; else "type/name".
+func buildResourceRelativePath(res *AgentSpecResource) string {
+	if res == nil {
+		return ""
+	}
+	t := strings.TrimSpace(res.Type)
+	n := strings.TrimSpace(res.Name)
+	if t == "" {
+		return n
+	}
+	prefix := t + "/"
+	if strings.HasPrefix(n, prefix) {
+		return n
+	}
+	return t + "/" + n
+}
+
 // GetAgentSpec retrieves an agentspec via the Client API and saves it to local directory.
 // Priority for version resolution: label > version > latest.
 func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label string) error {
@@ -196,21 +219,19 @@ func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label s
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Save resource files
+	// Save resource files (paths aligned with server buildResourcePath)
 	for _, res := range spec.Resource {
 		if res == nil || res.Content == "" {
 			continue
 		}
-		var fileDir string
-		if res.Type != "" {
-			fileDir = filepath.Join(specDir, res.Type)
-		} else {
-			fileDir = specDir
+		rel := buildResourceRelativePath(res)
+		if rel == "" {
+			continue
 		}
-		if err := os.MkdirAll(fileDir, 0755); err != nil {
+		filePath := filepath.Join(specDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 			return fmt.Errorf("failed to create resource directory: %w", err)
 		}
-		filePath := filepath.Join(fileDir, res.Name)
 		// Decode base64 content for binary files
 		var data []byte
 		if enc, ok := res.Metadata["encoding"]; ok && enc == "base64" {
@@ -318,8 +339,11 @@ func (s *AgentSpecService) UploadAgentSpec(agentSpecPath string) error {
 	}
 
 	// Send HTTP request
-	uploadURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs/upload?namespaceId=%s",
-		s.client.ServerAddr, s.client.Namespace)
+	uploadParams := url.Values{}
+	uploadParams.Set("namespaceId", s.client.Namespace)
+	uploadParams.Set("overwrite", "false")
+	uploadURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs/upload?%s",
+		s.client.ServerAddr, uploadParams.Encode())
 	req, err := http.NewRequest("POST", uploadURL, body)
 	if err != nil {
 		return err

@@ -73,6 +73,9 @@ type V3Response struct {
 
 // ListSkills lists all skills with name and description
 func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]SkillListItem, int, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, 0, err
+	}
 	params := url.Values{}
 	params.Set("pageNo", fmt.Sprintf("%d", pageNo))
 	params.Set("pageSize", fmt.Sprintf("%d", pageSize))
@@ -131,6 +134,9 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]Ski
 // GetSkill retrieves a skill via the new Client Skill API and saves it to local directory.
 // Priority for version resolution: label > version > latest.
 func (s *SkillService) GetSkill(skillName, outputDir string, version, label string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
 	params := url.Values{}
 	params.Set("namespaceId", s.client.Namespace)
 	params.Set("name", skillName)
@@ -234,6 +240,9 @@ func (s *SkillService) generateSkillMD(skillDir string, skill *Skill) error {
 // If skillPath points to a .zip file it is uploaded directly; otherwise the
 // directory is packed into a zip on-the-fly (skillName/... structure).
 func (s *SkillService) UploadSkill(skillPath string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
 	var zipBuffer *bytes.Buffer
 	var skillName string
 

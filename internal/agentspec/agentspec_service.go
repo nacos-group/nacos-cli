@@ -75,6 +75,9 @@ func NewAgentSpecService(nacosClient *client.NacosClient) *AgentSpecService {
 
 // ListAgentSpecs lists all agentspecs with admin API
 func (s *AgentSpecService) ListAgentSpecs(agentSpecName string, search string, pageNo, pageSize int) ([]AgentSpecListItem, int, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, 0, err
+	}
 	params := url.Values{}
 	params.Set("pageNo", fmt.Sprintf("%d", pageNo))
 	params.Set("pageSize", fmt.Sprintf("%d", pageSize))
@@ -140,6 +143,9 @@ func (s *AgentSpecService) ListAgentSpecs(agentSpecName string, search string, p
 // GetAgentSpec retrieves an agentspec via the Client API and saves it to local directory.
 // Priority for version resolution: label > version > latest.
 func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
 	params := url.Values{}
 	params.Set("namespaceId", s.client.Namespace)
 	params.Set("name", name)
@@ -250,6 +256,9 @@ func (s *AgentSpecService) generateManifest(specDir string, content string) erro
 // If agentSpecPath points to a .zip file it is uploaded directly; otherwise the
 // directory is packed into a zip on-the-fly.
 func (s *AgentSpecService) UploadAgentSpec(agentSpecPath string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
 	var zipBuffer *bytes.Buffer
 	var specName string
 

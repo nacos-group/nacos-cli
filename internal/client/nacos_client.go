@@ -243,8 +243,8 @@ func (c *NacosClient) applyLoginFromMap(m map[string]interface{}) bool {
 	return true
 }
 
-// ensureTokenValid ensures the access token is valid, refreshing if necessary
-func (c *NacosClient) ensureTokenValid() error {
+// EnsureTokenValid ensures the access token is valid, refreshing if necessary
+func (c *NacosClient) EnsureTokenValid() error {
 	// Token auth: user-supplied token, no refresh
 	if c.AuthType == AuthTypeToken {
 		return nil
@@ -300,7 +300,7 @@ func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
 
 // ListConfigs retrieves a list of configurations using v3 or v1 API based on login version
 func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo, pageSize int) (*ConfigListResponse, error) {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return nil, err
 	}
 	ns := namespaceID
@@ -359,7 +359,7 @@ func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo,
 
 // listConfigsV1 retrieves configurations using Nacos v1 API
 func (c *NacosClient) listConfigsV1(dataID, groupName, namespace string, pageNo, pageSize int) (*ConfigListResponse, error) {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return nil, err
 	}
 	params := url.Values{}
@@ -404,7 +404,7 @@ func (c *NacosClient) listConfigsV1(dataID, groupName, namespace string, pageNo,
 
 // GetConfig retrieves a specific configuration using v3 client API
 func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return "", err
 	}
 
@@ -462,7 +462,7 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 
 // PublishConfig publishes a configuration
 func (c *NacosClient) PublishConfig(dataID, group, content string) error {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return err
 	}
 	params := map[string]string{

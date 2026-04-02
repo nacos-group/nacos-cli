@@ -245,14 +245,14 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for port if not set
 	if c.Port == 0 {
-		fmt.Print("Enter Nacos port [8848]: ")
+		fmt.Print("Enter Nacos port [80]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read port: %w", err)
 		}
 		input = strings.TrimSpace(input)
 		if input == "" {
-			c.Port = 8848
+			c.Port = 80
 		} else {
 			port, err := strconv.Atoi(input)
 			if err != nil {
@@ -435,7 +435,7 @@ func (c *Config) PromptForUpdate() error {
 	}
 
 	// Port
-	currentPort := "8848"
+	currentPort := "80"
 	if c.Port > 0 {
 		currentPort = strconv.Itoa(c.Port)
 	}
@@ -452,7 +452,7 @@ func (c *Config) PromptForUpdate() error {
 		}
 		c.Port = port
 	} else if c.Port == 0 {
-		c.Port = 8848
+		c.Port = 80
 	}
 
 	// Auth type

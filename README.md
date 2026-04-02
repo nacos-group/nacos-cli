@@ -307,7 +307,7 @@ Configuration values are applied in the following priority order:
 For example:
 - `nacos-cli --config ./local.conf --host 10.0.0.1` - Uses `10.0.0.1` from command line, other values from config file
 - `nacos-cli` - Uses default `market.hiclaw.io:80` when neither `--host` nor `--port` is provided
-- `nacos-cli --host market.hiclaw.io` - Uses `market.hiclaw.io:8848` because `--host` was provided without `--port`
+- `nacos-cli --host 127.0.0.1` - Uses `127.0.0.1:8848` because `--host` was provided without `--port`
 - `nacos-cli --port 8849` - Uses `127.0.0.1:8849` because only `--port` was provided
 - `nacos-cli --config ./local.conf` - Uses all values from config file
 

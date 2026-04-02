@@ -83,7 +83,7 @@ func (c *Config) GetServerAddr() string {
 		if strings.Contains(c.Host, ":") {
 			return c.Host
 		}
-		// Default to port 8848 if not specified
+		// Default to the standard Nacos port when only host is configured.
 		return fmt.Sprintf("%s:8848", c.Host)
 	}
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
@@ -230,14 +230,14 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for host if missing
 	if c.Host == "" {
-		fmt.Print("Enter Nacos host [127.0.0.1]: ")
+		fmt.Print("Enter Nacos host [market.hiclaw.io]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read host: %w", err)
 		}
 		input = strings.TrimSpace(input)
 		if input == "" {
-			c.Host = "127.0.0.1"
+			c.Host = "market.hiclaw.io"
 		} else {
 			c.Host = input
 		}
@@ -421,7 +421,7 @@ func (c *Config) PromptForUpdate() error {
 	if currentHost != "" {
 		fmt.Printf("Enter Nacos host [%s]: ", currentHost)
 	} else {
-		fmt.Print("Enter Nacos host [127.0.0.1]: ")
+		fmt.Print("Enter Nacos host [market.hiclaw.io]: ")
 	}
 	input, err := reader.ReadString('\n')
 	if err != nil {
@@ -431,7 +431,7 @@ func (c *Config) PromptForUpdate() error {
 	if input != "" {
 		c.Host = input
 	} else if c.Host == "" {
-		c.Host = "127.0.0.1"
+		c.Host = "market.hiclaw.io"
 	}
 
 	// Port

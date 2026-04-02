@@ -249,9 +249,9 @@ nacos> quit           # Exit terminal
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| --host | | 127.0.0.1 | Nacos server host |
-| --port | | 8848 | Nacos server port |
-| --server | -s | 127.0.0.1:8848 | Nacos server address (deprecated, use --host and --port) |
+| --host | | market.hiclaw.io when `--host` and `--port` are both omitted; otherwise 127.0.0.1 when only `--port` is provided | Nacos server host |
+| --port | | 80 when `--host` and `--port` are both omitted; otherwise 8848 when omitted after `--host` | Nacos server port |
+| --server | -s | market.hiclaw.io:80 when no host/port is provided | Nacos server address (deprecated, use --host and --port) |
 | --username | -u | nacos | Nacos username |
 | --password | -p | nacos | Nacos password |
 | --namespace | -n | (empty/public) | Nacos namespace ID |
@@ -306,7 +306,9 @@ Configuration values are applied in the following priority order:
 
 For example:
 - `nacos-cli --config ./local.conf --host 10.0.0.1` - Uses `10.0.0.1` from command line, other values from config file
-- `nacos-cli --host 192.168.1.100 --port 8848` - Uses command line values, defaults for username/password
+- `nacos-cli` - Uses default `market.hiclaw.io:80` when neither `--host` nor `--port` is provided
+- `nacos-cli --host market.hiclaw.io` - Uses `market.hiclaw.io:8848` because `--host` was provided without `--port`
+- `nacos-cli --port 8849` - Uses `127.0.0.1:8849` because only `--port` was provided
 - `nacos-cli --config ./local.conf` - Uses all values from config file
 
 ## Project Structure

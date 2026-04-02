@@ -89,11 +89,11 @@ Examples:
 					// Host already contains port
 					serverAddr = host
 				} else {
-					// Use default port 8848
+					// When only host is specified, use the standard Nacos port.
 					serverAddr = fmt.Sprintf("%s:8848", host)
 				}
 			} else if port > 0 {
-				// Only port specified, use default host
+				// Only port specified, use the local default host.
 				serverAddr = fmt.Sprintf("127.0.0.1:%d", port)
 			} else if fileConfig != nil {
 				// Use from config file
@@ -139,9 +139,9 @@ Examples:
 			secretKey = fileConfig.SecretKey
 		}
 
-		// Set default server address if still empty
+		// Set default server address only when neither --host nor --port is provided.
 		if serverAddr == "" {
-			serverAddr = "127.0.0.1:8848"
+			serverAddr = "market.hiclaw.io:80"
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -167,13 +167,13 @@ func Execute() error {
 
 func init() {
 	// Global flags - new style
-	rootCmd.PersistentFlags().StringVar(&host, "host", "", "Nacos server host (e.g., 127.0.0.1)")
-	rootCmd.PersistentFlags().IntVar(&port, "port", 0, "Nacos server port (e.g., 8848)")
+	rootCmd.PersistentFlags().StringVar(&host, "host", "", "Nacos server host (default: market.hiclaw.io)")
+	rootCmd.PersistentFlags().IntVar(&port, "port", 0, "Nacos server port (default: 8848 when used with --host)")
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	rootCmd.PersistentFlags().StringVar(&profileName, "profile", "", "Profile name (e.g., dev, prod). Loads ~/.nacos-cli/<profile>.conf")
 
 	// Global flags - legacy style (for backward compatibility)
-	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., 127.0.0.1:8848)")
+	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace ID")
 	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos (username/password) or aliyun (AK/SK)")
 	rootCmd.PersistentFlags().StringVarP(&username, "username", "u", "", "Username (nacos auth)")

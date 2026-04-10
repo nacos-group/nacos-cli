@@ -1,2 +1,27 @@
 # Build output (binaries distributed via npm/GitHub Release)
 build/
+
+# Binary executable
+nacos-cli
+bin/nacos-cli
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Node
+node_modules/
+
+# Environment
+.env
+.env.*

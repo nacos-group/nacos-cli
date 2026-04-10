@@ -1,4 +1,4 @@
-module github.com/nov11/nacos-cli
+module github.com/nacos-group/nacos-cli
 
 go 1.21
 
@@ -6,6 +6,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/go-resty/resty/v2 v2.11.0
 	github.com/spf13/cobra v1.8.0
+	golang.org/x/term v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

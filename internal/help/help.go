@@ -37,38 +37,48 @@ var (
 
 	SkillGet = CommandHelp{
 		Command:     "skill-get",
-		Description: "Download a skill from Nacos to local ~/.skills directory.",
+		Description: "Download a skill from Nacos to local directory via the Client Skill API.",
 		Parameters: []string{
-			"skillName       Required. The name of the skill to download",
+			"skillName...    Required. One or more skill names to download",
+			"-o, --output    Output directory (default: ~/.skills)",
+			"--version       Specific version to download (e.g. v1, v2)",
+			"--label         Route label to resolve version (e.g. latest, stable)",
 		},
 		Examples: []string{
-			"# Download a skill",
+			"# Download the latest version of a skill",
 			"skill-get skill-creator",
 			"",
-			"# Download will create ~/.skills/skill-creator/ with:",
-			"#   - SKILL.md (documentation)",
-			"#   - scripts/ (script files)",
-			"#   - references/ (reference documents)",
+			"# Download a specific version",
+			"skill-get skill-creator --version v2",
+			"",
+			"# Download via label",
+			"skill-get skill-creator --label stable",
+			"",
+			"# Download to a custom directory",
+			"skill-get skill-creator -o ~/my-skills",
+			"",
+			"# Download multiple skills",
+			"skill-get skill-creator skill-analyzer",
 		},
 	}
 
-	SkillUpload = CommandHelp{
-		Command:     "skill-upload",
-		Description: "Upload a skill directory to Nacos as a ZIP file.",
+	SkillPublish = CommandHelp{
+		Command:     "skill-publish",
+		Description: "Publish a skill to Nacos by uploading it as a ZIP file (creates a draft version).\nReview and go-online operations should be done via the Nacos console.",
 		Parameters: []string{
 			"skillPath       Required. Path to the skill directory",
-			"--all           Upload all skills in the specified directory",
+			"--all           Publish all skills in the specified directory",
 		},
 		Examples: []string{
-			"# Upload a single skill",
-			"skill-upload ./my-skill",
+			"# Publish a single skill",
+			"skill-publish ./my-skill",
 			"",
-			"# Upload all skills in a directory",
-			"skill-upload --all ./skills-folder",
+			"# Publish all skills in a directory",
+			"skill-publish --all ./skills-folder",
 			"",
 			"Note:",
 			"  - Skill directory must contain SKILL.md",
-			"  - Skill names: letters, underscores (_), hyphens (-) only",
+			"  - After publishing, use the Nacos console to review and go online",
 		},
 	}
 
@@ -134,23 +144,78 @@ var (
 
 	SkillSync = CommandHelp{
 		Command:     "skill-sync",
-		Description: "Synchronize skills with Nacos (real-time updates).",
+		Description: "(Removed) Skill sync is no longer supported.",
+		Parameters:  []string{},
+		Examples:    []string{},
+	}
+
+	AgentSpecList = CommandHelp{
+		Command:     "agentspec-list",
+		Description: "List all agent specs from Nacos configuration center.",
 		Parameters: []string{
-			"skillName...    Optional. One or more skill names to synchronize",
-			"--all           Synchronize all skills",
+			"--name string     Filter by agent spec name",
+			"--page int        Page number (default: 1)",
+			"--size int        Page size (default: 20)",
 		},
 		Examples: []string{
-			"# Sync a single skill",
-			"skill-sync skill-creator",
+			"# List all agent specs",
+			"agentspec-list",
 			"",
-			"# Sync multiple skills",
-			"skill-sync skill-creator skill-analyzer skill-formatter",
+			"# Search by name",
+			"agentspec-list --name \"worker\"",
 			"",
-			"# Sync all skills",
-			"skill-sync --all",
+			"# With pagination",
+			"agentspec-list --page 2 --size 10",
+		},
+	}
+
+	AgentSpecGet = CommandHelp{
+		Command:     "agentspec-get",
+		Description: "Download an agent spec from Nacos to local directory via the Client AgentSpec API.",
+		Parameters: []string{
+			"name...         Required. One or more agent spec names to download",
+			"-o, --output    Output directory (default: ~/.agentspecs)",
+			"--version       Specific version to download (e.g. v1, v2)",
+			"--label         Route label to resolve version (e.g. latest, stable)",
+		},
+		Examples: []string{
+			"# Download the latest version of an agent spec",
+			"agentspec-get my-worker",
 			"",
-			"# Skills will be downloaded to ~/.skills/",
-			"# Press Ctrl+C to stop synchronization",
+			"# Download a specific version",
+			"agentspec-get my-worker --version v2",
+			"",
+			"# Download via label",
+			"agentspec-get my-worker --label stable",
+			"",
+			"# Download to a custom directory",
+			"agentspec-get my-worker -o ~/my-specs",
+			"",
+			"# Download multiple agent specs",
+			"agentspec-get worker-a worker-b",
+		},
+	}
+
+	AgentSpecPublish = CommandHelp{
+		Command:     "agentspec-publish",
+		Description: "Publish an agent spec to Nacos by uploading it as a ZIP file (creates a draft version).\nReview and go-online operations should be done via the Nacos console.",
+		Parameters: []string{
+			"agentSpecPath   Required. Path to the agent spec directory or .zip file",
+			"--all           Publish all agent specs in the specified directory",
+		},
+		Examples: []string{
+			"# Publish a single agent spec",
+			"agentspec-publish ./my-worker",
+			"",
+			"# Publish a pre-built zip file",
+			"agentspec-publish ./my-worker.zip",
+			"",
+			"# Publish all agent specs in a directory",
+			"agentspec-publish --all ./specs-folder",
+			"",
+			"Note:",
+			"  - Agent spec directory must contain manifest.json",
+			"  - After publishing, use the Nacos console to review and go online",
 		},
 	}
 )

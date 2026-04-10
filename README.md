@@ -7,22 +7,39 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 - 🚀 Fast and lightweight - single binary with no dependencies
 - 💻 Interactive terminal mode with auto-completion
 - 🎯 Skill management - upload, download, list, and sync AI skills
+- 🤖 AgentSpec management - upload, download, and list AI agent specs
 - 📝 Configuration management - list and get configurations
 - 🔄 Real-time skill synchronization with Nacos
 - 🌐 Namespace support for multi-environment management
-- 📦 Batch operations - upload all skills at once
+- 📦 Batch operations - upload all skills and agent specs at once
 
 ## Installation
 
+### npm / npx
+
+Use `npx` to run directly without installation:
+
+```bash
+npx @nacos-group/cli --help
+npx @nacos-group/cli skill-list --host 127.0.0.1 --port 8848 -u nacos -p nacos
+```
+
+Or install globally via npm:
+
+```bash
+npm install -g @nacos-group/cli
+nacos-cli --help
+```
+
 ### Download Binary
 
-Download the latest release from [GitHub Releases](https://github.com/yourusername/nacos-cli/releases).
+Download the latest release from [GitHub Releases](https://github.com/nacos-group/nacos-cli/releases).
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/nacos-cli.git
+git clone https://github.com/nacos-group/nacos-cli.git
 cd nacos-cli
 
 # Build
@@ -68,24 +85,74 @@ nacos> help
 
 ## Commands
 
+### AgentSpec Management
+
+#### List AgentSpecs
+
+```bash
+# CLI mode (description shown by default, truncated at 200 chars)
+nacos-cli agentspec-list -s 127.0.0.1:8848 -u nacos -p nacos
+
+# With filters
+nacos-cli agentspec-list --name my-agentspec --page 1 --size 20
+
+# Terminal mode
+nacos> agentspec-list
+nacos> agentspec-list --name my-agentspec --page 2
+```
+
+#### Get/Download AgentSpec
+
+Download an agent spec to local directory (default: `~/.agentspecs`):
+
+```bash
+# CLI mode
+nacos-cli agentspec-get my-agentspec -s 127.0.0.1:8848 -u nacos -p nacos
+nacos-cli agentspec-get my-agentspec -o /custom/path
+
+# Download specific version
+nacos-cli agentspec-get my-agentspec --version v1
+
+# Download by route label
+nacos-cli agentspec-get my-agentspec --label latest
+
+# Download multiple agent specs
+nacos-cli agentspec-get spec1 spec2 spec3
+
+# Terminal mode
+nacos> agentspec-get my-agentspec
+```
+
+#### Publish AgentSpec
+
+Publish an agent spec from local directory:
+
+```bash
+# Publish single agent spec
+nacos-cli agentspec-publish /path/to/agentspec -s 127.0.0.1:8848 -u nacos -p nacos
+
+# Publish all agent specs in a directory
+nacos-cli agentspec-publish --all /path/to/agentspecs/folder
+
+# Terminal mode
+nacos> agentspec-publish /path/to/agentspec
+nacos> agentspec-publish --all /path/to/agentspecs
+```
+
 ### Skill Management
 
 #### List Skills
 
 ```bash
-# CLI mode
+# CLI mode (description shown by default, truncated at 200 chars)
 nacos-cli skill-list -s 127.0.0.1:8848 -u nacos -p nacos
 
 # With filters
 nacos-cli skill-list --name skill-creator --page 1 --size 20
 
-# Show skill description
-nacos-cli skill-list --desc
-
 # Terminal mode
 nacos> skill-list
 nacos> skill-list --name skill-creator --page 2
-nacos> skill-list --desc
 ```
 
 #### Get/Download Skill
@@ -182,9 +249,9 @@ nacos> quit           # Exit terminal
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| --host | | 127.0.0.1 | Nacos server host |
-| --port | | 8848 | Nacos server port |
-| --server | -s | 127.0.0.1:8848 | Nacos server address (deprecated, use --host and --port) |
+| --host | | market.hiclaw.io when `--host` and `--port` are both omitted; otherwise 127.0.0.1 when only `--port` is provided | Nacos server host |
+| --port | | 80 when `--host` and `--port` are both omitted; otherwise 8848 when omitted after `--host` | Nacos server port |
+| --server | -s | market.hiclaw.io:80 when no host/port is provided | Nacos server address (deprecated, use --host and --port) |
 | --username | -u | nacos | Nacos username |
 | --password | -p | nacos | Nacos password |
 | --namespace | -n | (empty/public) | Nacos namespace ID |
@@ -239,7 +306,9 @@ Configuration values are applied in the following priority order:
 
 For example:
 - `nacos-cli --config ./local.conf --host 10.0.0.1` - Uses `10.0.0.1` from command line, other values from config file
-- `nacos-cli --host 192.168.1.100 --port 8848` - Uses command line values, defaults for username/password
+- `nacos-cli` - Uses default `market.hiclaw.io:80` when neither `--host` nor `--port` is provided
+- `nacos-cli --host 127.0.0.1` - Uses `127.0.0.1:8848` because `--host` was provided without `--port`
+- `nacos-cli --port 8849` - Uses `127.0.0.1:8849` because only `--port` was provided
 - `nacos-cli --config ./local.conf` - Uses all values from config file
 
 ## Project Structure
@@ -252,12 +321,16 @@ nacos-cli/
 │   ├── get_skill.go     # skill-get command
 │   ├── upload_skill.go  # skill-upload command
 │   ├── sync_skill.go    # skill-sync command
+│   ├── list_agentspec.go   # agentspec-list command
+│   ├── get_agentspec.go    # agentspec-get command
+│   ├── publish_agentspec.go # agentspec-publish command
 │   ├── list_config.go   # config-list command
 │   ├── get_config.go    # config-get command
 │   └── interactive.go   # Interactive terminal
 ├── internal/
 │   ├── client/          # Nacos client
 │   ├── skill/           # Skill service
+│   ├── agentspec/       # AgentSpec service
 │   ├── sync/            # Sync service
 │   ├── listener/        # Config listener
 │   ├── terminal/        # Terminal implementation
@@ -314,9 +387,10 @@ MIT License
 
 - Rewritten in Go for better performance and portability
 - Added skill management commands (list, get, upload, sync)
+- Added agent spec management commands (list, get, upload)
 - Added real-time skill synchronization with Nacos
 - Added interactive terminal mode with auto-completion
-- Added batch upload support for multiple skills
+- Added batch upload support for multiple skills and agent specs
 - Added configuration management commands
 - Improved error handling and user experience
 - Removed all emoji clutter from terminal output

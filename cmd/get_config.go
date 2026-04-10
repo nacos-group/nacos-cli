@@ -3,8 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/help"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +17,7 @@ var getConfigCmd = &cobra.Command{
 		group := args[1]
 
 		// Create Nacos client
-		nacosClient := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey)
+		nacosClient := mustNewNacosClient()
 
 		// Get config
 		fmt.Printf("Fetching config: %s (%s)...\n\n", dataID, group)

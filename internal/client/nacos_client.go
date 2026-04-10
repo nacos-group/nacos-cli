@@ -15,8 +15,10 @@ import (
 )
 
 const (
+	AuthTypeNone   = "none"   // No authentication (public registry)
 	AuthTypeNacos  = "nacos"  // Username/password authentication
 	AuthTypeAliyun = "aliyun" // AccessKey/SecretKey authentication
+	AuthTypeToken  = "token"  // Pre-issued access token (no login required)
 )
 
 // NacosClient represents a Nacos API client
@@ -58,36 +60,101 @@ type V3Response struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// NewNacosClient creates a new Nacos client with automatic authentication
-func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey string) *NacosClient {
+// ParseHTTPError converts an HTTP error response into a user-friendly error message.
+// It handles common HTTP status codes with actionable hints.
+func ParseHTTPError(statusCode int, body []byte, operation string) error {
+	// Try to extract message from v3 response body
+	serverMsg := ""
+	if len(body) > 0 {
+		var v3 V3Response
+		if err := json.Unmarshal(body, &v3); err == nil && v3.Message != "" {
+			serverMsg = v3.Message
+		}
+	}
+
+	switch statusCode {
+	case 401:
+		hint := "authentication required — please check your username/password or token"
+		if serverMsg != "" {
+			return fmt.Errorf("%s failed (401 Unauthorized): %s\nHint: %s", operation, serverMsg, hint)
+		}
+		return fmt.Errorf("%s failed (401 Unauthorized): %s", operation, hint)
+	case 403:
+		hint := "access denied — token may be expired or you lack permission for this operation"
+		if serverMsg != "" {
+			return fmt.Errorf("%s failed (403 Forbidden): %s\nHint: %s", operation, serverMsg, hint)
+		}
+		return fmt.Errorf("%s failed (403 Forbidden): %s", operation, hint)
+	case 404:
+		hint := "resource not found — check the name/namespace or whether it exists"
+		if serverMsg != "" {
+			return fmt.Errorf("%s failed (404 Not Found): %s\nHint: %s", operation, serverMsg, hint)
+		}
+		return fmt.Errorf("%s failed (404 Not Found): %s", operation, hint)
+	case 500:
+		hint := "server internal error — check Nacos server logs for details"
+		if serverMsg != "" {
+			return fmt.Errorf("%s failed (500 Internal Server Error): %s\nHint: %s", operation, serverMsg, hint)
+		}
+		return fmt.Errorf("%s failed (500 Internal Server Error): %s", operation, hint)
+	default:
+		if serverMsg != "" {
+			return fmt.Errorf("%s failed (HTTP %d): %s", operation, statusCode, serverMsg)
+		}
+		if len(body) > 0 {
+			// Truncate long bodies
+			bodyStr := string(body)
+			if len(bodyStr) > 200 {
+				bodyStr = bodyStr[:200] + "..."
+			}
+			return fmt.Errorf("%s failed (HTTP %d): %s", operation, statusCode, bodyStr)
+		}
+		return fmt.Errorf("%s failed (HTTP %d)", operation, statusCode)
+	}
+}
+
+// NewNacosClient creates a new Nacos client with automatic authentication.
+// If token is non-empty, it is used directly as the Bearer token and no login request is made.
+// Returns an error if login is required but fails (e.g. wrong credentials).
+func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, token string) (*NacosClient, error) {
 	if namespace == "" {
 		namespace = "public"
 	}
 	if authType == "" {
-		if accessKey != "" && secretKey != "" {
+		if token != "" {
+			authType = AuthTypeToken
+		} else if accessKey != "" && secretKey != "" {
 			authType = AuthTypeAliyun
-		} else {
+		} else if username != "" && password != "" {
 			authType = AuthTypeNacos
+		} else {
+			authType = AuthTypeNone
 		}
 	}
 
 	c := &NacosClient{
-		ServerAddr: serverAddr,
-		Namespace:  namespace,
-		AuthType:   authType,
-		Username:   username,
-		Password:   password,
-		AccessKey:  accessKey,
-		SecretKey:  secretKey,
-		httpClient: resty.New(),
+		ServerAddr:  serverAddr,
+		Namespace:   namespace,
+		AuthType:    authType,
+		Username:    username,
+		Password:    password,
+		AccessKey:   accessKey,
+		SecretKey:   secretKey,
+		AccessToken: token,
+		httpClient:  resty.New(),
+	}
+
+	// If a token is provided directly, skip login entirely.
+	if token != "" {
+		return c, nil
 	}
 
 	if c.AuthType == AuthTypeNacos {
 		if err := c.login(); err != nil {
-			fmt.Printf("Warning: Login failed: %v\n", err)
+			return nil, fmt.Errorf("login failed: %w", err)
 		}
 	}
-	return c
+	return c, nil
 }
 
 // isLocalAddr checks if the server address is localhost
@@ -176,8 +243,12 @@ func (c *NacosClient) applyLoginFromMap(m map[string]interface{}) bool {
 	return true
 }
 
-// ensureTokenValid ensures the access token is valid, refreshing if necessary
-func (c *NacosClient) ensureTokenValid() error {
+// EnsureTokenValid ensures the access token is valid, refreshing if necessary
+func (c *NacosClient) EnsureTokenValid() error {
+	// Token auth: user-supplied token, no refresh
+	if c.AuthType == AuthTypeToken {
+		return nil
+	}
 	if c.AuthType != AuthTypeNacos {
 		return nil
 	}
@@ -229,7 +300,7 @@ func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
 
 // ListConfigs retrieves a list of configurations using v3 or v1 API based on login version
 func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo, pageSize int) (*ConfigListResponse, error) {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return nil, err
 	}
 	ns := namespaceID
@@ -269,7 +340,7 @@ func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo,
 	}
 
 	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("list configs failed: status=%d, body=%s", resp.StatusCode(), string(resp.Body()))
+		return nil, ParseHTTPError(resp.StatusCode(), resp.Body(), "list configs")
 	}
 
 	var v3Resp V3Response
@@ -288,7 +359,7 @@ func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo,
 
 // listConfigsV1 retrieves configurations using Nacos v1 API
 func (c *NacosClient) listConfigsV1(dataID, groupName, namespace string, pageNo, pageSize int) (*ConfigListResponse, error) {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return nil, err
 	}
 	params := url.Values{}
@@ -320,7 +391,7 @@ func (c *NacosClient) listConfigsV1(dataID, groupName, namespace string, pageNo,
 	}
 
 	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("v1 list configs failed: status=%d", resp.StatusCode())
+		return nil, ParseHTTPError(resp.StatusCode(), resp.Body(), "list configs (v1)")
 	}
 
 	var configList ConfigListResponse
@@ -331,25 +402,29 @@ func (c *NacosClient) listConfigsV1(dataID, groupName, namespace string, pageNo,
 	return &configList, nil
 }
 
-// GetConfig retrieves a specific configuration
+// GetConfig retrieves a specific configuration using v3 client API
 func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return "", err
 	}
+
+	ns := c.Namespace
+	if ns == "public" {
+		ns = ""
+	}
+
 	params := url.Values{}
 	params.Set("dataId", dataID)
-	params.Set("group", group)
-
-	if c.Namespace != "" {
-		params.Set("tenant", c.Namespace)
+	params.Set("groupName", group)
+	if ns != "" {
+		params.Set("namespaceId", ns)
 	}
 
-	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-		params.Set("accessToken", c.AccessToken)
-	}
-
-	apiURL := fmt.Sprintf("http://%s/nacos/v1/cs/configs", c.ServerAddr)
+	apiURL := fmt.Sprintf("http://%s/nacos/v3/client/cs/config", c.ServerAddr)
 	req := c.httpClient.R().SetQueryString(params.Encode())
+	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+	}
 	c.setSpasHeaders(req, c.Namespace, group)
 	resp, err := req.Get(apiURL)
 
@@ -358,15 +433,36 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	}
 
 	if resp.StatusCode() != 200 {
-		return "", fmt.Errorf("get config failed: status=%d", resp.StatusCode())
+		return "", ParseHTTPError(resp.StatusCode(), resp.Body(), "get config")
 	}
 
-	return string(resp.Body()), nil
+	// Parse v3 response
+	var v3Resp V3Response
+	if err := json.Unmarshal(resp.Body(), &v3Resp); err != nil {
+		// If not JSON, return raw content (for backward compatibility)
+		return string(resp.Body()), nil
+	}
+	if v3Resp.Code != 0 {
+		return "", fmt.Errorf("get config failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	// Parse config from data
+	var config Config
+	if err := json.Unmarshal(v3Resp.Data, &config); err != nil {
+		// Try to return raw data as string
+		var rawContent string
+		if err := json.Unmarshal(v3Resp.Data, &rawContent); err != nil {
+			return string(v3Resp.Data), nil
+		}
+		return rawContent, nil
+	}
+
+	return config.Content, nil
 }
 
 // PublishConfig publishes a configuration
 func (c *NacosClient) PublishConfig(dataID, group, content string) error {
-	if err := c.ensureTokenValid(); err != nil {
+	if err := c.EnsureTokenValid(); err != nil {
 		return err
 	}
 	params := map[string]string{
@@ -392,7 +488,7 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	}
 
 	if resp.StatusCode() != 200 {
-		return fmt.Errorf("publish config failed: status=%d, body=%s", resp.StatusCode(), string(resp.Body()))
+		return ParseHTTPError(resp.StatusCode(), resp.Body(), "publish config")
 	}
 
 	var v3Resp V3Response

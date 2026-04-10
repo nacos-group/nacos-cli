@@ -1,8 +1,7 @@
 package cmd
 
 import (
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/terminal"
+	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
 
@@ -12,7 +11,7 @@ var interactiveCmd = &cobra.Command{
 	Long:  `Start an interactive terminal for managing Nacos configurations and skills`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create Nacos client
-		nacosClient := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey)
+		nacosClient := mustNewNacosClient()
 
 		// Create and start terminal
 		term := terminal.NewTerminal(nacosClient)

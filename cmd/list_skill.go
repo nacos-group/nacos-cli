@@ -2,19 +2,21 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/help"
-	"github.com/nov11/nacos-cli/internal/skill"
+	"github.com/nacos-group/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/skill"
+	"github.com/nacos-group/nacos-cli/internal/util"
 	"github.com/spf13/cobra"
 )
 
 var (
-	skillListPage     int
-	skillListSize     int
-	skillListName     string
-	skillListShowDesc bool
+	skillListPage int
+	skillListSize int
+	skillListName string
 )
+
+const defaultDescLimit = 200
 
 var listSkillCmd = &cobra.Command{
 	Use:   "skill-list",
@@ -22,7 +24,7 @@ var listSkillCmd = &cobra.Command{
 	Long:  help.SkillList.FormatForCLI("nacos-cli"),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create Nacos client
-		nacosClient := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey)
+		nacosClient := mustNewNacosClient()
 
 		// Create skill service
 		skillService := skill.NewSkillService(nacosClient)
@@ -37,11 +39,15 @@ var listSkillCmd = &cobra.Command{
 			return
 		}
 
+		asciiMode := os.Getenv("NO_UNICODE_OUTPUT") != ""
+		separator := util.SeparatorLine(79, asciiMode)
+
 		fmt.Printf("Skill List (Total: %d)\n", totalCount)
-		fmt.Println("═══════════════════════════════════════════════════════════════════════════════")
+		fmt.Println(separator)
 		for i, skill := range skills {
-			if skillListShowDesc && skill.Description != "" {
-				fmt.Printf("%3d. %s - %s\n", i+1, skill.Name, skill.Description)
+			if skill.Description != "" {
+				desc := truncateDesc(skill.Description, defaultDescLimit)
+				fmt.Printf("%3d. %s - %s\n", i+1, skill.Name, desc)
 			} else {
 				fmt.Printf("%3d. %s\n", i+1, skill.Name)
 			}
@@ -53,6 +59,14 @@ func init() {
 	listSkillCmd.Flags().IntVar(&skillListPage, "page", 1, "Page number (default: 1)")
 	listSkillCmd.Flags().IntVar(&skillListSize, "size", 20, "Page size (default: 20)")
 	listSkillCmd.Flags().StringVar(&skillListName, "name", "", "Filter by skill name (supports wildcard *)")
-	listSkillCmd.Flags().BoolVar(&skillListShowDesc, "desc", false, "Show skill description")
 	rootCmd.AddCommand(listSkillCmd)
+}
+
+// truncateDesc truncates description to maxLen and appends ...... if needed
+func truncateDesc(desc string, maxLen int) string {
+	runes := []rune(desc)
+	if len(runes) <= maxLen {
+		return desc
+	}
+	return string(runes[:maxLen]) + "......"
 }

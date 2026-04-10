@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/help"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +29,7 @@ var setConfigCmd = &cobra.Command{
 		}
 
 		// Create Nacos client
-		nacosClient := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey)
+		nacosClient := mustNewNacosClient()
 
 		fmt.Printf("Publishing config: %s (%s)...\n", dataID, group)
 		err = nacosClient.PublishConfig(dataID, group, content)

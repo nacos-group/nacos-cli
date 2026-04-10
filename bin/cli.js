@@ -5,9 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Get current version from package.json
-const packageJson = require('../package.json');
-const VERSION = packageJson.version;
+// Fixed nacos-cli binary version
+// npm package version is independent from binary version
+const VERSION = '1.0.2';
 
 // Detect platform and architecture
 function getBinaryName() {

@@ -6,20 +6,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nov11/nacos-cli/internal/client"
-	"github.com/nov11/nacos-cli/internal/help"
-	"github.com/nov11/nacos-cli/internal/skill"
+	"github.com/nacos-group/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/spf13/cobra"
 )
 
 var (
-	uploadAll bool
+	publishAll bool
 )
 
-var uploadSkillCmd = &cobra.Command{
-	Use:   "skill-upload [skillPath]",
-	Short: "Upload a skill to Nacos",
-	Long:  help.SkillUpload.FormatForCLI("nacos-cli"),
+var publishSkillCmd = &cobra.Command{
+	Use:   "skill-publish [skillPath]",
+	Short: "Publish a skill to Nacos (upload as ZIP)",
+	Long:  help.SkillPublish.FormatForCLI("nacos-cli"),
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
@@ -29,23 +28,23 @@ var uploadSkillCmd = &cobra.Command{
 		skillPath := args[0]
 
 		// Create Nacos client
-		nacosClient := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey)
+		nacosClient := mustNewNacosClient()
 
 		// Create skill service
 		skillService := skill.NewSkillService(nacosClient)
 
-		// Handle batch upload
-		if uploadAll {
-			uploadAllSkills(skillPath, skillService)
+		// Handle batch publish
+		if publishAll {
+			publishAllSkills(skillPath, skillService)
 			return
 		}
 
-		// Single skill upload
-		uploadSingleSkill(skillPath, skillService)
+		// Single skill publish
+		publishSingleSkill(skillPath, skillService)
 	},
 }
 
-func uploadSingleSkill(skillPath string, skillService *skill.SkillService) {
+func publishSingleSkill(skillPath string, skillService *skill.SkillService) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(skillPath, "~") {
 		homeDir, err := os.UserHomeDir()
@@ -58,16 +57,16 @@ func uploadSingleSkill(skillPath string, skillService *skill.SkillService) {
 	checkError(err)
 
 	skillName := filepath.Base(absPath)
-	fmt.Printf("Uploading skill: %s...\n", skillName)
+	fmt.Printf("Publishing skill: %s...\n", skillName)
 
 	err = skillService.UploadSkill(absPath)
 	checkError(err)
 
-	fmt.Printf("Skill uploaded successfully!\n")
-	fmt.Printf("  Tip: Use 'skill-list' to verify or 'skill-get %s' to download\n", skillName)
+	fmt.Printf("Skill published successfully!\n")
+	fmt.Printf("  Tip: Use the Nacos console to review and go online, or use 'skill-list' to verify.\n")
 }
 
-func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
+func publishAllSkills(folderPath string, skillService *skill.SkillService) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~") {
 		homeDir, err := os.UserHomeDir()
@@ -108,16 +107,16 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
 
 	for i, skillName := range skillDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Uploading skill: %s\n", i+1, len(skillDirs), skillName)
+		fmt.Printf("[%d/%d] Publishing skill: %s\n", i+1, len(skillDirs), skillName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
 		err := skillService.UploadSkill(skillPath)
 		if err != nil {
-			fmt.Printf("Upload failed: %v\n", err)
+			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
 		} else {
-			fmt.Printf("Upload successful!\n")
+			fmt.Printf("Publish successful!\n")
 			successCount++
 		}
 		fmt.Println()
@@ -125,7 +124,7 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
 
 	// Summary
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Upload Complete")
+	fmt.Println("Batch Publish Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -133,10 +132,10 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
 	}
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use 'skill-list' to view all uploaded skills")
+	fmt.Println("Tip: Use the Nacos console to review and go online, or use 'skill-list' to verify.")
 }
 
 func init() {
-	uploadSkillCmd.Flags().BoolVar(&uploadAll, "all", false, "Upload all skills in the directory")
-	rootCmd.AddCommand(uploadSkillCmd)
+	publishSkillCmd.Flags().BoolVar(&publishAll, "all", false, "Publish all skills in the directory")
+	rootCmd.AddCommand(publishSkillCmd)
 }

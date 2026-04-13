@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -280,6 +282,36 @@ func spasSign(signData, secretKey string) string {
 	mac := hmac.New(sha1.New, []byte(secretKey))
 	mac.Write([]byte(signData))
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// aiResourceGroup is the fixed group used for signing AI resource requests (skill/agentspec).
+const aiResourceGroup = "DEFAULT_GROUP"
+
+// NewAuthedRequest creates an *http.Request with authentication headers already applied.
+// It sets the Bearer token header for nacos/token auth and SPAS headers for aliyun auth.
+// AI resource APIs (skill, agentspec) use namespaceId as tenant and DEFAULT_GROUP as group
+// for SPAS signature calculation.
+func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	// Bearer token (nacos / token auth)
+	if c.AccessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	}
+	// SPAS headers (aliyun auth): tenant=namespaceId, group=DEFAULT_GROUP
+	if c.AuthType == AuthTypeAliyun && c.AccessKey != "" && c.SecretKey != "" {
+		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+		tenant := c.Namespace
+		if tenant == "public" {
+			tenant = ""
+		}
+		req.Header.Set("timeStamp", ts)
+		req.Header.Set("Spas-AccessKey", c.AccessKey)
+		req.Header.Set("Spas-Signature", spasSign(getSignData(tenant, aiResourceGroup, ts), c.SecretKey))
+	}
+	return req, nil
 }
 
 // setSpasHeaders sets Aliyun authentication headers for SPAS signature

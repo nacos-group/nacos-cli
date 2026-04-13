@@ -73,13 +73,9 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]Ski
 	listURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/list?%s",
 		s.client.ServerAddr, params.Encode())
 
-	req, err := http.NewRequest("GET", listURL, nil)
+	req, err := s.client.NewAuthedRequest("GET", listURL, nil)
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if s.client.AccessToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
 	}
 
 	httpClient := &http.Client{}
@@ -136,12 +132,9 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 	apiURL := fmt.Sprintf("http://%s/nacos/v3/client/ai/skills?%s",
 		s.client.ServerAddr, params.Encode())
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := s.client.NewAuthedRequest("GET", apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build request: %w", err)
-	}
-	if s.client.AccessToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
 	}
 
 	httpClient := &http.Client{}
@@ -289,16 +282,12 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	// Send HTTP request
 	uploadURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s",
 		s.client.ServerAddr, s.client.Namespace)
-	req, err := http.NewRequest("POST", uploadURL, body)
+	req, err := s.client.NewAuthedRequest("POST", uploadURL, body)
 	if err != nil {
 		return err
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	if s.client.AccessToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
-	}
 
 	httpClient := &http.Client{}
 	resp, err := httpClient.Do(req)

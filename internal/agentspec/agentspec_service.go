@@ -102,13 +102,9 @@ func (s *AgentSpecService) ListAgentSpecs(agentSpecName string, search string, p
 	listURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs/list?%s",
 		s.client.ServerAddr, params.Encode())
 
-	req, err := http.NewRequest("GET", listURL, nil)
+	req, err := s.client.NewAuthedRequest("GET", listURL, nil)
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if s.client.AccessToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
 	}
 
 	httpClient := &http.Client{}
@@ -182,12 +178,9 @@ func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label s
 	apiURL := fmt.Sprintf("http://%s/nacos/v3/client/ai/agentspecs?%s",
 		s.client.ServerAddr, params.Encode())
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := s.client.NewAuthedRequest("GET", apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build request: %w", err)
-	}
-	if s.client.AccessToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
 	}
 
 	httpClient := &http.Client{}
@@ -353,16 +346,12 @@ func (s *AgentSpecService) UploadAgentSpec(agentSpecPath string) error {
 	uploadParams.Set("overwrite", "false")
 	uploadURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs/upload?%s",
 		s.client.ServerAddr, uploadParams.Encode())
-	req, err := http.NewRequest("POST", uploadURL, body)
+	req, err := s.client.NewAuthedRequest("POST", uploadURL, body)
 	if err != nil {
 		return err
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	if s.client.AccessToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.client.AccessToken))
-	}
 
 	httpClient := &http.Client{}
 	resp, err := httpClient.Do(req)

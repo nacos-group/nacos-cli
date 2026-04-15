@@ -13,22 +13,22 @@ import (
 )
 
 const (
-	DefaultConfigDir  = ".nacos-cli"
-	DefaultProfile    = "default"
-	ConfigFileSuffix  = ".conf"
+	DefaultConfigDir = ".nacos-cli"
+	DefaultProfile   = "default"
+	ConfigFileSuffix = ".conf"
 )
 
 // Config represents the Nacos CLI configuration
 type Config struct {
-	Host      string `yaml:"host"`
-	Port      int    `yaml:"port"`
-	AuthType  string `yaml:"authType"` // nacos | aliyun | token
-	Username  string `yaml:"username"`
-	Password  string `yaml:"password"`
-	Token     string `yaml:"token"`     // Pre-issued access token (skips username/password login)
-	AccessKey string `yaml:"accessKey"` // Aliyun AK（AuthType=aliyun 时使用）
-	SecretKey string `yaml:"secretKey"` // Aliyun SK
-	Namespace string `yaml:"namespace"`
+	Host          string `yaml:"host"`
+	Port          int    `yaml:"port"`
+	AuthType      string `yaml:"authType"` // nacos | aliyun | sts
+	Username      string `yaml:"username"`
+	Password      string `yaml:"password"`
+	AccessKey     string `yaml:"accessKey"`     // Aliyun AK（AuthType=aliyun/sts 时使用）
+	SecretKey     string `yaml:"secretKey"`     // Aliyun SK（AuthType=aliyun/sts 时使用）
+	SecurityToken string `yaml:"securityToken"` // STS SecurityToken（AuthType=sts 时使用）
+	Namespace     string `yaml:"namespace"`
 }
 
 // LoadConfig loads configuration from a file
@@ -127,11 +127,6 @@ func (c *Config) IsComplete() bool {
 		return false
 	}
 
-	// Token auth: only token is needed
-	if c.Token != "" {
-		return true
-	}
-
 	// Check based on auth type
 	authType := strings.ToLower(c.AuthType)
 
@@ -141,8 +136,11 @@ func (c *Config) IsComplete() bool {
 	}
 
 	if authType == "aliyun" {
-		// Aliyun auth requires AccessKey and SecretKey
 		return c.AccessKey != "" && c.SecretKey != ""
+	}
+
+	if authType == "sts" {
+		return c.AccessKey != "" && c.SecretKey != "" && c.SecurityToken != ""
 	}
 
 	// Nacos auth requires username and password
@@ -155,11 +153,6 @@ func (c *Config) GetMissingFields() []string {
 
 	if c.Host == "" {
 		missing = append(missing, "host")
-	}
-
-	// Token auth: no other fields required
-	if c.Token != "" {
-		return missing
 	}
 
 	authType := strings.ToLower(c.AuthType)
@@ -175,6 +168,16 @@ func (c *Config) GetMissingFields() []string {
 		}
 		if c.SecretKey == "" {
 			missing = append(missing, "secretKey")
+		}
+	} else if authType == "sts" {
+		if c.AccessKey == "" {
+			missing = append(missing, "accessKey")
+		}
+		if c.SecretKey == "" {
+			missing = append(missing, "secretKey")
+		}
+		if c.SecurityToken == "" {
+			missing = append(missing, "securityToken")
 		}
 	} else {
 		// Nacos auth
@@ -264,7 +267,7 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for auth type if not set
 	if c.AuthType == "" {
-		fmt.Print("Enter auth type (none/nacos/aliyun) [none]: ")
+		fmt.Print("Enter auth type (none/nacos/aliyun/sts) [none]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read auth type: %w", err)
@@ -272,15 +275,15 @@ func (c *Config) PromptForMissingFields() error {
 		input = strings.TrimSpace(strings.ToLower(input))
 		if input == "" {
 			c.AuthType = "none"
-		} else if input == "none" || input == "nacos" || input == "aliyun" {
+		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts" {
 			c.AuthType = input
 		} else {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos' or 'aliyun')", input)
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts')", input)
 		}
 	}
 
 	// Prompt for credentials based on auth type
-	if c.AuthType == "aliyun" {
+	if c.AuthType == "aliyun" || c.AuthType == "sts" {
 		if c.AccessKey == "" {
 			fmt.Print("Enter AccessKey: ")
 			input, err := reader.ReadString('\n')
@@ -289,14 +292,21 @@ func (c *Config) PromptForMissingFields() error {
 			}
 			c.AccessKey = strings.TrimSpace(input)
 			if c.AccessKey == "" {
-				return fmt.Errorf("access key is required for aliyun auth")
+				return fmt.Errorf("access key is required for %s auth", c.AuthType)
 			}
 		}
 		if c.SecretKey == "" {
 			fmt.Print("Enter SecretKey: ")
 			c.SecretKey = readPassword(reader)
 			if c.SecretKey == "" {
-				return fmt.Errorf("secret key is required for aliyun auth")
+				return fmt.Errorf("secret key is required for %s auth", c.AuthType)
+			}
+		}
+		if c.AuthType == "sts" && c.SecurityToken == "" {
+			fmt.Print("Enter SecurityToken: ")
+			c.SecurityToken = readPassword(reader)
+			if c.SecurityToken == "" {
+				return fmt.Errorf("security token is required for sts auth")
 			}
 		}
 	} else if c.AuthType == "nacos" {
@@ -460,15 +470,15 @@ func (c *Config) PromptForUpdate() error {
 	if currentAuthType == "" {
 		currentAuthType = "none"
 	}
-	fmt.Printf("Enter auth type (none/nacos/aliyun) [%s]: ", currentAuthType)
+	fmt.Printf("Enter auth type (none/nacos/aliyun/sts) [%s]: ", currentAuthType)
 	input, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read auth type: %w", err)
 	}
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input != "" {
-		if input != "none" && input != "nacos" && input != "aliyun" {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos' or 'aliyun')", input)
+		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts" {
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts')", input)
 		}
 		c.AuthType = input
 	} else if c.AuthType == "" {
@@ -476,7 +486,7 @@ func (c *Config) PromptForUpdate() error {
 	}
 
 	// Credentials based on auth type
-	if c.AuthType == "aliyun" {
+	if c.AuthType == "aliyun" || c.AuthType == "sts" {
 		// AccessKey
 		currentAK := formatCurrent(c.AccessKey, false)
 		if currentAK != "" {
@@ -493,7 +503,7 @@ func (c *Config) PromptForUpdate() error {
 			c.AccessKey = input
 		}
 		if c.AccessKey == "" {
-			return fmt.Errorf("access key is required for aliyun auth")
+			return fmt.Errorf("access key is required for %s auth", c.AuthType)
 		}
 
 		// SecretKey
@@ -507,7 +517,23 @@ func (c *Config) PromptForUpdate() error {
 			c.SecretKey = newSK
 		}
 		if c.SecretKey == "" {
-			return fmt.Errorf("secret key is required for aliyun auth")
+			return fmt.Errorf("secret key is required for %s auth", c.AuthType)
+		}
+
+		// SecurityToken (only for sts auth)
+		if c.AuthType == "sts" {
+			if c.SecurityToken != "" {
+				fmt.Print("Enter SecurityToken [******] (press Enter to keep current): ")
+			} else {
+				fmt.Print("Enter SecurityToken: ")
+			}
+			newST := readPassword(reader)
+			if newST != "" {
+				c.SecurityToken = newST
+			}
+			if c.SecurityToken == "" {
+				return fmt.Errorf("security token is required for sts auth")
+			}
 		}
 	} else if c.AuthType == "nacos" {
 		// Nacos auth - Username

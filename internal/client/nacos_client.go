@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	AuthTypeNone   = "none"   // No authentication (public registry)
-	AuthTypeNacos  = "nacos"  // Username/password authentication
-	AuthTypeAliyun = "aliyun" // AccessKey/SecretKey authentication
-	AuthTypeToken  = "token"  // Pre-issued access token (no login required)
+	AuthTypeNone     = "none"   // No authentication (public registry)
+	AuthTypeNacos    = "nacos"  // Username/password authentication
+	AuthTypeAliyun   = "aliyun" // AccessKey/SecretKey authentication
+	AuthTypeStsToken = "sts"    // STS temporary credential (AK/SK + SecurityToken)
 )
 
 // NacosClient represents a Nacos API client
@@ -32,6 +32,7 @@ type NacosClient struct {
 	Password         string
 	AccessKey        string
 	SecretKey        string
+	SecurityToken    string // STS temporary security token (AuthType=sts)
 	AccessToken      string
 	TokenExpireAt    time.Time
 	authLoginVersion string // "v3" or "v1", determined by first successful login
@@ -76,13 +77,13 @@ func ParseHTTPError(statusCode int, body []byte, operation string) error {
 
 	switch statusCode {
 	case 401:
-		hint := "authentication required — please check your username/password or token"
+		hint := "authentication required — please check your credentials"
 		if serverMsg != "" {
 			return fmt.Errorf("%s failed (401 Unauthorized): %s\nHint: %s", operation, serverMsg, hint)
 		}
 		return fmt.Errorf("%s failed (401 Unauthorized): %s", operation, hint)
 	case 403:
-		hint := "access denied — token may be expired or you lack permission for this operation"
+		hint := "access denied — credentials may be expired or you lack permission for this operation"
 		if serverMsg != "" {
 			return fmt.Errorf("%s failed (403 Forbidden): %s\nHint: %s", operation, serverMsg, hint)
 		}
@@ -116,15 +117,14 @@ func ParseHTTPError(statusCode int, body []byte, operation string) error {
 }
 
 // NewNacosClient creates a new Nacos client with automatic authentication.
-// If token is non-empty, it is used directly as the Bearer token and no login request is made.
 // Returns an error if login is required but fails (e.g. wrong credentials).
-func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, token string) (*NacosClient, error) {
+func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken string) (*NacosClient, error) {
 	if namespace == "" {
 		namespace = "public"
 	}
 	if authType == "" {
-		if token != "" {
-			authType = AuthTypeToken
+		if accessKey != "" && secretKey != "" && securityToken != "" {
+			authType = AuthTypeStsToken
 		} else if accessKey != "" && secretKey != "" {
 			authType = AuthTypeAliyun
 		} else if username != "" && password != "" {
@@ -135,20 +135,15 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 	}
 
 	c := &NacosClient{
-		ServerAddr:  serverAddr,
-		Namespace:   namespace,
-		AuthType:    authType,
-		Username:    username,
-		Password:    password,
-		AccessKey:   accessKey,
-		SecretKey:   secretKey,
-		AccessToken: token,
-		httpClient:  resty.New(),
-	}
-
-	// If a token is provided directly, skip login entirely.
-	if token != "" {
-		return c, nil
+		ServerAddr:    serverAddr,
+		Namespace:     namespace,
+		AuthType:      authType,
+		Username:      username,
+		Password:      password,
+		AccessKey:     accessKey,
+		SecretKey:     secretKey,
+		SecurityToken: securityToken,
+		httpClient:    resty.New(),
 	}
 
 	if c.AuthType == AuthTypeNacos {
@@ -247,10 +242,6 @@ func (c *NacosClient) applyLoginFromMap(m map[string]interface{}) bool {
 
 // EnsureTokenValid ensures the access token is valid, refreshing if necessary
 func (c *NacosClient) EnsureTokenValid() error {
-	// Token auth: user-supplied token, no refresh
-	if c.AuthType == AuthTypeToken {
-		return nil
-	}
 	if c.AuthType != AuthTypeNacos {
 		return nil
 	}
@@ -288,7 +279,7 @@ func spasSign(signData, secretKey string) string {
 const aiResourceGroup = "DEFAULT_GROUP"
 
 // NewAuthedRequest creates an *http.Request with authentication headers already applied.
-// It sets the Bearer token header for nacos/token auth and SPAS headers for aliyun auth.
+// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/sts auth.
 // AI resource APIs (skill, agentspec) use namespaceId as tenant and DEFAULT_GROUP as group
 // for SPAS signature calculation.
 func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*http.Request, error) {
@@ -296,12 +287,12 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 	if err != nil {
 		return nil, err
 	}
-	// Bearer token (nacos / token auth)
+	// Bearer token (nacos auth)
 	if c.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
-	// SPAS headers (aliyun auth): tenant=namespaceId, group=DEFAULT_GROUP
-	if c.AuthType == AuthTypeAliyun && c.AccessKey != "" && c.SecretKey != "" {
+	// SPAS headers (aliyun/sts auth): tenant=namespaceId, group=DEFAULT_GROUP
+	if (c.AuthType == AuthTypeAliyun || c.AuthType == AuthTypeStsToken) && c.AccessKey != "" && c.SecretKey != "" {
 		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		tenant := c.Namespace
 		if tenant == "public" {
@@ -310,13 +301,16 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 		req.Header.Set("timeStamp", ts)
 		req.Header.Set("Spas-AccessKey", c.AccessKey)
 		req.Header.Set("Spas-Signature", spasSign(getSignData(tenant, aiResourceGroup, ts), c.SecretKey))
+		if c.AuthType == AuthTypeStsToken && c.SecurityToken != "" {
+			req.Header.Set("Spas-SecurityToken", c.SecurityToken)
+		}
 	}
 	return req, nil
 }
 
-// setSpasHeaders sets Aliyun authentication headers for SPAS signature
+// setSpasHeaders sets Aliyun/STS authentication headers for SPAS signature
 func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
-	if c.AuthType != AuthTypeAliyun || c.AccessKey == "" || c.SecretKey == "" {
+	if (c.AuthType != AuthTypeAliyun && c.AuthType != AuthTypeStsToken) || c.AccessKey == "" || c.SecretKey == "" {
 		return
 	}
 	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -328,6 +322,9 @@ func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
 	}
 	signData := getSignData(normalizedTenant, group, ts)
 	req.SetHeader("Spas-Signature", spasSign(signData, c.SecretKey))
+	if c.AuthType == AuthTypeStsToken && c.SecurityToken != "" {
+		req.SetHeader("Spas-SecurityToken", c.SecurityToken)
+	}
 }
 
 // ListConfigs retrieves a list of configurations using v3 or v1 API based on login version

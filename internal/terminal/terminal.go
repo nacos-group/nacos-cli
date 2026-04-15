@@ -43,17 +43,14 @@ func (t *Terminal) getPrompt() string {
 		if t.client.Username != "" {
 			return fmt.Sprintf("\033[32m%s@nacos>\033[0m ", t.client.Username)
 		}
-	case client.AuthTypeAliyun:
+	case client.AuthTypeAliyun, client.AuthTypeStsToken:
 		if t.client.AccessKey != "" {
-			// Show first 8 chars of access key
 			ak := t.client.AccessKey
 			if len(ak) > 8 {
 				ak = ak[:8]
 			}
 			return fmt.Sprintf("\033[32m%s@nacos>\033[0m ", ak)
 		}
-	case client.AuthTypeToken:
-		return "\033[32m(token)nacos>\033[0m "
 	}
 	return "\033[32mnacos>\033[0m "
 }
@@ -172,8 +169,10 @@ func (t *Terminal) printWelcome() {
 		if t.client.AccessKey != "" {
 			fmt.Printf("\033[33mUser:\033[0m %s (AccessKey)\n", t.client.AccessKey)
 		}
-	case client.AuthTypeToken:
-		fmt.Printf("\033[33mAuth:\033[0m Token (authenticated)\n")
+	case client.AuthTypeStsToken:
+		if t.client.AccessKey != "" {
+			fmt.Printf("\033[33mUser:\033[0m %s (STS Token)\n", t.client.AccessKey)
+		}
 	case client.AuthTypeNone:
 		fmt.Printf("\033[33mAuth:\033[0m None (public access)\n")
 	}
@@ -188,6 +187,7 @@ func (t *Terminal) printWelcome() {
 // For example: "skill-get my-skill --label latest -o /path" should recognize:
 //   - skill name: my-skill
 //   - flags: --label latest, -o /path
+//
 // This prevents flags and their values from being treated as additional skill names
 func parseCommandArgs(input string) (cmd string, args []string) {
 	parts := strings.Fields(input)
@@ -201,7 +201,7 @@ func parseCommandArgs(input string) (cmd string, args []string) {
 	// Parse remaining parts, handling flags properly
 	for i := 1; i < len(parts); i++ {
 		arg := parts[i]
-		
+
 		// Check if this is a flag
 		if strings.HasPrefix(arg, "-") {
 			args = append(args, arg)
@@ -211,7 +211,7 @@ func parseCommandArgs(input string) (cmd string, args []string) {
 				"--help": true, "-h": true,
 				"--all": true,
 			}
-			
+
 			// If it's a long flag (--flag), check if value is separate
 			if strings.HasPrefix(arg, "--") && !strings.Contains(arg, "=") {
 				if !booleanFlags[arg] && i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
@@ -397,8 +397,11 @@ func (t *Terminal) getAuthTypeDisplay() string {
 			return fmt.Sprintf("aliyun (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
 		}
 		return "aliyun"
-	case client.AuthTypeToken:
-		return "token (authenticated)"
+	case client.AuthTypeStsToken:
+		if t.client.AccessKey != "" {
+			return fmt.Sprintf("sts (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
+		}
+		return "sts"
 	case client.AuthTypeNone:
 		return "none (public access)"
 	default:
@@ -515,7 +518,7 @@ func (t *Terminal) getSkill(args []string) {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		if arg == "--version" && i+1 < len(args) {
 			i++
 			version = args[i]
@@ -1084,7 +1087,7 @@ func (t *Terminal) getAgentSpec(args []string) {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		if arg == "--version" && i+1 < len(args) {
 			i++
 			version = args[i]

@@ -12,18 +12,18 @@ import (
 )
 
 var (
-	serverAddr  string
-	host        string
-	port        int
-	namespace   string
-	authType    string
-	username    string
-	password    string
-	token       string
-	accessKey   string
-	secretKey   string
-	configFile  string
-	profileName string // Profile name for config file (default, dev, prod, etc.)
+	serverAddr    string
+	host          string
+	port          int
+	namespace     string
+	authType      string
+	username      string
+	password      string
+	accessKey     string
+	secretKey     string
+	securityToken string
+	configFile    string
+	profileName   string // Profile name for config file (default, dev, prod, etc.)
 )
 
 var rootCmd = &cobra.Command{
@@ -56,7 +56,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || token != "" || accessKey != "" || secretKey != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != ""
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -121,22 +121,15 @@ Examples:
 			password = fileConfig.Password
 		}
 
-		// Token: command line > config file (token takes priority over username/password when set)
-		if token == "" && fileConfig != nil && fileConfig.Token != "" {
-			token = fileConfig.Token
-		}
-		// If token is provided, clear username/password defaults to avoid unnecessary login attempts
-		if token != "" {
-			username = ""
-			password = ""
-		}
-
-		// AccessKey / SecretKey: command line > config file（AuthType=aliyun 时使用）
+		// AccessKey / SecretKey / SecurityToken: command line > config file
 		if accessKey == "" && fileConfig != nil {
 			accessKey = fileConfig.AccessKey
 		}
 		if secretKey == "" && fileConfig != nil {
 			secretKey = fileConfig.SecretKey
+		}
+		if securityToken == "" && fileConfig != nil {
+			securityToken = fileConfig.SecurityToken
 		}
 
 		// Set default server address only when neither --host nor --port is provided.
@@ -175,12 +168,12 @@ func init() {
 	// Global flags - legacy style (for backward compatibility)
 	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace ID")
-	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos (username/password) or aliyun (AK/SK)")
+	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos | aliyun | sts")
 	rootCmd.PersistentFlags().StringVarP(&username, "username", "u", "", "Username (nacos auth)")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "Password (nacos auth)")
-	rootCmd.PersistentFlags().StringVar(&token, "token", "", "Access token (skips username/password login)")
-	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun auth)")
-	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun auth)")
+	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/sts auth)")
+	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/sts auth)")
+	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (sts auth)")
 
 	// Mark legacy server flag as deprecated but still functional
 	rootCmd.PersistentFlags().MarkDeprecated("server", "use --host and --port instead")
@@ -195,7 +188,7 @@ func checkError(err error) {
 
 // mustNewNacosClient creates a NacosClient and exits with a clear error message on failure (e.g. login failed).
 func mustNewNacosClient() *client.NacosClient {
-	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, token)
+	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

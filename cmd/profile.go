@@ -99,7 +99,7 @@ Examples:
 				cfg.Password,
 				cfg.AccessKey,
 				cfg.SecretKey,
-				cfg.Token,
+				cfg.SecurityToken,
 			)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -162,10 +162,15 @@ Examples:
 		fmt.Printf("%-15s %s\n", "host:", cfg.Host)
 		fmt.Printf("%-15s %d\n", "port:", cfg.Port)
 		fmt.Printf("%-15s %s\n", "auth-type:", cfg.AuthType)
-		if cfg.AuthType == "aliyun" {
+		switch cfg.AuthType {
+		case "aliyun":
 			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
 			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
-		} else {
+		case "sts":
+			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
+			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
+			fmt.Printf("%-15s %s\n", "security-token:", maskPassword(cfg.SecurityToken))
+		default:
 			fmt.Printf("%-15s %s\n", "username:", cfg.Username)
 			fmt.Printf("%-15s %s\n", "password:", maskPassword(cfg.Password))
 		}

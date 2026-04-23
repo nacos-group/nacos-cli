@@ -166,7 +166,7 @@ Examples:
 		case "aliyun":
 			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
 			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
-		case "sts":
+		case "sts-url":
 			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
 			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
 			fmt.Printf("%-15s %s\n", "security-token:", maskPassword(cfg.SecurityToken))

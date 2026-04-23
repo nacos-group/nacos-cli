@@ -22,12 +22,12 @@ const (
 type Config struct {
 	Host          string `yaml:"host"`
 	Port          int    `yaml:"port"`
-	AuthType      string `yaml:"authType"` // nacos | aliyun | sts
+	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-url
 	Username      string `yaml:"username"`
 	Password      string `yaml:"password"`
-	AccessKey     string `yaml:"accessKey"`     // Aliyun AK（AuthType=aliyun/sts 时使用）
-	SecretKey     string `yaml:"secretKey"`     // Aliyun SK（AuthType=aliyun/sts 时使用）
-	SecurityToken string `yaml:"securityToken"` // STS SecurityToken（AuthType=sts 时使用）
+	AccessKey     string `yaml:"accessKey"`     // Aliyun AK（AuthType=aliyun/sts-url 时使用）
+	SecretKey     string `yaml:"secretKey"`     // Aliyun SK（AuthType=aliyun/sts-url 时使用）
+	SecurityToken string `yaml:"securityToken"` // STS SecurityToken（AuthType=sts-url 时使用）
 	Namespace     string `yaml:"namespace"`
 }
 
@@ -139,7 +139,7 @@ func (c *Config) IsComplete() bool {
 		return c.AccessKey != "" && c.SecretKey != ""
 	}
 
-	if authType == "sts" {
+	if authType == "sts-url" {
 		return c.AccessKey != "" && c.SecretKey != "" && c.SecurityToken != ""
 	}
 
@@ -169,7 +169,7 @@ func (c *Config) GetMissingFields() []string {
 		if c.SecretKey == "" {
 			missing = append(missing, "secretKey")
 		}
-	} else if authType == "sts" {
+	} else if authType == "sts-url" {
 		if c.AccessKey == "" {
 			missing = append(missing, "accessKey")
 		}
@@ -267,7 +267,7 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for auth type if not set
 	if c.AuthType == "" {
-		fmt.Print("Enter auth type (none/nacos/aliyun/sts) [none]: ")
+		fmt.Print("Enter auth type (none/nacos/aliyun/sts-url) [none]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read auth type: %w", err)
@@ -275,15 +275,15 @@ func (c *Config) PromptForMissingFields() error {
 		input = strings.TrimSpace(strings.ToLower(input))
 		if input == "" {
 			c.AuthType = "none"
-		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts" {
+		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts-url" {
 			c.AuthType = input
 		} else {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts')", input)
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-url')", input)
 		}
 	}
 
 	// Prompt for credentials based on auth type
-	if c.AuthType == "aliyun" || c.AuthType == "sts" {
+	if c.AuthType == "aliyun" || c.AuthType == "sts-url" {
 		if c.AccessKey == "" {
 			fmt.Print("Enter AccessKey: ")
 			input, err := reader.ReadString('\n')
@@ -302,11 +302,11 @@ func (c *Config) PromptForMissingFields() error {
 				return fmt.Errorf("secret key is required for %s auth", c.AuthType)
 			}
 		}
-		if c.AuthType == "sts" && c.SecurityToken == "" {
+		if c.AuthType == "sts-url" && c.SecurityToken == "" {
 			fmt.Print("Enter SecurityToken: ")
 			c.SecurityToken = readPassword(reader)
 			if c.SecurityToken == "" {
-				return fmt.Errorf("security token is required for sts auth")
+				return fmt.Errorf("security token is required for sts-url auth")
 			}
 		}
 	} else if c.AuthType == "nacos" {
@@ -470,15 +470,15 @@ func (c *Config) PromptForUpdate() error {
 	if currentAuthType == "" {
 		currentAuthType = "none"
 	}
-	fmt.Printf("Enter auth type (none/nacos/aliyun/sts) [%s]: ", currentAuthType)
+	fmt.Printf("Enter auth type (none/nacos/aliyun/sts-url) [%s]: ", currentAuthType)
 	input, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read auth type: %w", err)
 	}
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input != "" {
-		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts" {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts')", input)
+		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts-url" {
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-url')", input)
 		}
 		c.AuthType = input
 	} else if c.AuthType == "" {
@@ -486,7 +486,7 @@ func (c *Config) PromptForUpdate() error {
 	}
 
 	// Credentials based on auth type
-	if c.AuthType == "aliyun" || c.AuthType == "sts" {
+	if c.AuthType == "aliyun" || c.AuthType == "sts-url" {
 		// AccessKey
 		currentAK := formatCurrent(c.AccessKey, false)
 		if currentAK != "" {
@@ -520,8 +520,8 @@ func (c *Config) PromptForUpdate() error {
 			return fmt.Errorf("secret key is required for %s auth", c.AuthType)
 		}
 
-		// SecurityToken (only for sts auth)
-		if c.AuthType == "sts" {
+		// SecurityToken (only for sts-url auth)
+		if c.AuthType == "sts-url" {
 			if c.SecurityToken != "" {
 				fmt.Print("Enter SecurityToken [******] (press Enter to keep current): ")
 			} else {
@@ -532,7 +532,7 @@ func (c *Config) PromptForUpdate() error {
 				c.SecurityToken = newST
 			}
 			if c.SecurityToken == "" {
-				return fmt.Errorf("security token is required for sts auth")
+				return fmt.Errorf("security token is required for sts-url auth")
 			}
 		}
 	} else if c.AuthType == "nacos" {

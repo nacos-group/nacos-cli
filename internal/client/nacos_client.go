@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	AuthTypeNone     = "none"   // No authentication (public registry)
-	AuthTypeNacos    = "nacos"  // Username/password authentication
-	AuthTypeAliyun   = "aliyun" // AccessKey/SecretKey authentication
-	AuthTypeStsToken = "sts"    // STS temporary credential (AK/SK + SecurityToken)
+	AuthTypeNone     = "none"    // No authentication (public registry)
+	AuthTypeNacos    = "nacos"   // Username/password authentication
+	AuthTypeAliyun   = "aliyun"  // AccessKey/SecretKey authentication
+	AuthTypeStsToken = "sts-url" // STS temporary credential (AK/SK + SecurityToken)
 )
 
 // NacosClient represents a Nacos API client
@@ -32,7 +32,7 @@ type NacosClient struct {
 	Password         string
 	AccessKey        string
 	SecretKey        string
-	SecurityToken    string // STS temporary security token (AuthType=sts)
+	SecurityToken    string // STS temporary security token (AuthType=sts-url)
 	AccessToken      string
 	TokenExpireAt    time.Time
 	authLoginVersion string // "v3" or "v1", determined by first successful login
@@ -279,7 +279,7 @@ func spasSign(signData, secretKey string) string {
 const aiResourceGroup = "DEFAULT_GROUP"
 
 // NewAuthedRequest creates an *http.Request with authentication headers already applied.
-// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/sts auth.
+// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/sts-url auth.
 // AI resource APIs (skill, agentspec) use namespaceId as tenant and DEFAULT_GROUP as group
 // for SPAS signature calculation.
 func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*http.Request, error) {
@@ -291,7 +291,7 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 	if c.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
-	// SPAS headers (aliyun/sts auth): tenant=namespaceId, group=DEFAULT_GROUP
+	// SPAS headers (aliyun/sts-url auth): tenant=namespaceId, group=DEFAULT_GROUP
 	if (c.AuthType == AuthTypeAliyun || c.AuthType == AuthTypeStsToken) && c.AccessKey != "" && c.SecretKey != "" {
 		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		tenant := c.Namespace

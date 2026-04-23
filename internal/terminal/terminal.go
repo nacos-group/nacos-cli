@@ -399,9 +399,9 @@ func (t *Terminal) getAuthTypeDisplay() string {
 		return "aliyun"
 	case client.AuthTypeStsToken:
 		if t.client.AccessKey != "" {
-			return fmt.Sprintf("sts (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
+			return fmt.Sprintf("sts-url (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
 		}
-		return "sts"
+		return "sts-url"
 	case client.AuthTypeNone:
 		return "none (public access)"
 	default:

@@ -25,9 +25,9 @@ type Config struct {
 	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-url
 	Username      string `yaml:"username"`
 	Password      string `yaml:"password"`
-	AccessKey     string `yaml:"accessKey"`     // Aliyun AK（AuthType=aliyun/sts-url 时使用）
-	SecretKey     string `yaml:"secretKey"`     // Aliyun SK（AuthType=aliyun/sts-url 时使用）
-	SecurityToken string `yaml:"securityToken"` // STS SecurityToken（AuthType=sts-url 时使用）
+	AccessKey     string `yaml:"accessKey"`     // Aliyun AK (AuthType=aliyun)
+	SecretKey     string `yaml:"secretKey"`     // Aliyun SK (AuthType=aliyun)
+	SecurityToken string `yaml:"securityToken"` // STS SecurityToken (legacy)
 	Namespace     string `yaml:"namespace"`
 }
 
@@ -140,7 +140,8 @@ func (c *Config) IsComplete() bool {
 	}
 
 	if authType == "sts-url" {
-		return c.AccessKey != "" && c.SecretKey != "" && c.SecurityToken != ""
+		// sts-url credentials are fetched dynamically from STS_URL env var
+		return true
 	}
 
 	// Nacos auth requires username and password
@@ -170,15 +171,7 @@ func (c *Config) GetMissingFields() []string {
 			missing = append(missing, "secretKey")
 		}
 	} else if authType == "sts-url" {
-		if c.AccessKey == "" {
-			missing = append(missing, "accessKey")
-		}
-		if c.SecretKey == "" {
-			missing = append(missing, "secretKey")
-		}
-		if c.SecurityToken == "" {
-			missing = append(missing, "securityToken")
-		}
+		// sts-url credentials are fetched dynamically; no config fields required
 	} else {
 		// Nacos auth
 		if c.Username == "" {
@@ -283,7 +276,7 @@ func (c *Config) PromptForMissingFields() error {
 	}
 
 	// Prompt for credentials based on auth type
-	if c.AuthType == "aliyun" || c.AuthType == "sts-url" {
+	if c.AuthType == "aliyun" {
 		if c.AccessKey == "" {
 			fmt.Print("Enter AccessKey: ")
 			input, err := reader.ReadString('\n')
@@ -300,13 +293,6 @@ func (c *Config) PromptForMissingFields() error {
 			c.SecretKey = readPassword(reader)
 			if c.SecretKey == "" {
 				return fmt.Errorf("secret key is required for %s auth", c.AuthType)
-			}
-		}
-		if c.AuthType == "sts-url" && c.SecurityToken == "" {
-			fmt.Print("Enter SecurityToken: ")
-			c.SecurityToken = readPassword(reader)
-			if c.SecurityToken == "" {
-				return fmt.Errorf("security token is required for sts-url auth")
 			}
 		}
 	} else if c.AuthType == "nacos" {
@@ -486,7 +472,7 @@ func (c *Config) PromptForUpdate() error {
 	}
 
 	// Credentials based on auth type
-	if c.AuthType == "aliyun" || c.AuthType == "sts-url" {
+	if c.AuthType == "aliyun" {
 		// AccessKey
 		currentAK := formatCurrent(c.AccessKey, false)
 		if currentAK != "" {
@@ -519,22 +505,9 @@ func (c *Config) PromptForUpdate() error {
 		if c.SecretKey == "" {
 			return fmt.Errorf("secret key is required for %s auth", c.AuthType)
 		}
-
-		// SecurityToken (only for sts-url auth)
-		if c.AuthType == "sts-url" {
-			if c.SecurityToken != "" {
-				fmt.Print("Enter SecurityToken [******] (press Enter to keep current): ")
-			} else {
-				fmt.Print("Enter SecurityToken: ")
-			}
-			newST := readPassword(reader)
-			if newST != "" {
-				c.SecurityToken = newST
-			}
-			if c.SecurityToken == "" {
-				return fmt.Errorf("security token is required for sts-url auth")
-			}
-		}
+	} else if c.AuthType == "sts-url" {
+		// sts-url: credentials fetched dynamically from STS_URL env var
+		fmt.Println("Note: sts-url credentials are obtained from STS_URL and AUTH_TOKEN environment variables.")
 	} else if c.AuthType == "nacos" {
 		// Nacos auth - Username
 		currentUser := formatCurrent(c.Username, false)

@@ -22,6 +22,8 @@ var (
 	accessKey     string
 	secretKey     string
 	securityToken string
+	stsURL        string
+	stsAuthToken  string
 	configFile    string
 	profileName   string // Profile name for config file (default, dev, prod, etc.)
 )
@@ -56,7 +58,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType == "sts-url"
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -136,6 +138,25 @@ Examples:
 		if serverAddr == "" {
 			serverAddr = "market.hiclaw.io:80"
 		}
+
+		// For sts-url auth, read STS_URL and AUTH_TOKEN from environment variables
+		if authType == "sts-url" {
+			if stsURL == "" {
+				stsURL = os.Getenv("STS_URL")
+			}
+			if stsAuthToken == "" {
+				stsAuthToken = os.Getenv("AUTH_TOKEN")
+			}
+			if stsURL == "" || stsAuthToken == "" {
+				fmt.Fprintf(os.Stderr, "Error: sts-url auth requires STS_URL and AUTH_TOKEN environment variables\n")
+				os.Exit(1)
+			}
+		} else if authType == "" && os.Getenv("STS_URL") != "" && os.Getenv("AUTH_TOKEN") != "" {
+			// Auto-detect sts-url auth from environment variables
+			authType = "sts-url"
+			stsURL = os.Getenv("STS_URL")
+			stsAuthToken = os.Getenv("AUTH_TOKEN")
+		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default behavior: start interactive terminal
@@ -188,7 +209,7 @@ func checkError(err error) {
 
 // mustNewNacosClient creates a NacosClient and exits with a clear error message on failure (e.g. login failed).
 func mustNewNacosClient() *client.NacosClient {
-	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken)
+	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

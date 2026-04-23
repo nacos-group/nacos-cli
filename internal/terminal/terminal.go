@@ -171,7 +171,7 @@ func (t *Terminal) printWelcome() {
 		}
 	case client.AuthTypeStsToken:
 		if t.client.AccessKey != "" {
-			fmt.Printf("\033[33mUser:\033[0m %s (STS Token)\n", t.client.AccessKey)
+			fmt.Printf("\033[33mUser:\033[0m %s (STS-URL)\n", t.client.AccessKey)
 		}
 	case client.AuthTypeNone:
 		fmt.Printf("\033[33mAuth:\033[0m None (public access)\n")

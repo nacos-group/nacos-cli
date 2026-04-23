@@ -91,6 +91,15 @@ Examples:
 		if input == "" || input == "y" || input == "yes" {
 			fmt.Println()
 			// Start interactive terminal with the edited config
+			var stsURLVal, stsAuthTokenVal string
+			if cfg.AuthType == "sts-url" {
+				stsURLVal = os.Getenv("STS_URL")
+				stsAuthTokenVal = os.Getenv("AUTH_TOKEN")
+				if stsURLVal == "" || stsAuthTokenVal == "" {
+					fmt.Fprintf(os.Stderr, "Error: sts-url auth requires STS_URL and AUTH_TOKEN environment variables\n")
+					os.Exit(1)
+				}
+			}
 			nacosClient, err := client.NewNacosClient(
 				cfg.GetServerAddr(),
 				cfg.Namespace,
@@ -100,6 +109,8 @@ Examples:
 				cfg.AccessKey,
 				cfg.SecretKey,
 				cfg.SecurityToken,
+				stsURLVal,
+				stsAuthTokenVal,
 			)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -167,9 +178,7 @@ Examples:
 			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
 			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
 		case "sts-url":
-			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
-			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
-			fmt.Printf("%-15s %s\n", "security-token:", maskPassword(cfg.SecurityToken))
+			fmt.Printf("%-15s %s\n", "credentials:", "from STS_URL and AUTH_TOKEN env vars")
 		default:
 			fmt.Printf("%-15s %s\n", "username:", cfg.Username)
 			fmt.Printf("%-15s %s\n", "password:", maskPassword(cfg.Password))

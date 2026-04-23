@@ -23,6 +23,15 @@ const (
 	AuthTypeStsToken = "sts-url" // STS temporary credential (AK/SK + SecurityToken)
 )
 
+// stsTokenResponse represents the JSON response from the STS URL endpoint
+type stsTokenResponse struct {
+	AccessKeyID     string `json:"access_key_id"`
+	AccessKeySecret string `json:"access_key_secret"`
+	SecurityToken   string `json:"security_token"`
+	Expiration      string `json:"expiration"`
+	ExpiresInSec    int64  `json:"expires_in_sec"`
+}
+
 // NacosClient represents a Nacos API client
 type NacosClient struct {
 	ServerAddr       string
@@ -32,10 +41,13 @@ type NacosClient struct {
 	Password         string
 	AccessKey        string
 	SecretKey        string
-	SecurityToken    string // STS temporary security token (AuthType=sts-url)
+	SecurityToken    string // STS temporary security token
+	StsURL           string // STS credential endpoint URL (AuthType=sts-url)
+	StsAuthToken     string // Bearer token for STS URL authentication
 	AccessToken      string
 	TokenExpireAt    time.Time
-	authLoginVersion string // "v3" or "v1", determined by first successful login
+	stsCredExpireAt  time.Time // expiration time of STS credentials
+	authLoginVersion string    // "v3" or "v1", determined by first successful login
 	httpClient       *resty.Client
 }
 
@@ -118,12 +130,12 @@ func ParseHTTPError(statusCode int, body []byte, operation string) error {
 
 // NewNacosClient creates a new Nacos client with automatic authentication.
 // Returns an error if login is required but fails (e.g. wrong credentials).
-func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken string) (*NacosClient, error) {
+func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken string) (*NacosClient, error) {
 	if namespace == "" {
 		namespace = "public"
 	}
 	if authType == "" {
-		if accessKey != "" && secretKey != "" && securityToken != "" {
+		if stsURL != "" && stsAuthToken != "" {
 			authType = AuthTypeStsToken
 		} else if accessKey != "" && secretKey != "" {
 			authType = AuthTypeAliyun
@@ -143,12 +155,21 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 		AccessKey:     accessKey,
 		SecretKey:     secretKey,
 		SecurityToken: securityToken,
+		StsURL:        stsURL,
+		StsAuthToken:  stsAuthToken,
 		httpClient:    resty.New(),
 	}
 
-	if c.AuthType == AuthTypeNacos {
+	switch c.AuthType {
+	case AuthTypeNacos:
 		if err := c.login(); err != nil {
 			return nil, fmt.Errorf("login failed: %w", err)
+		}
+	case AuthTypeStsToken:
+		if c.StsURL != "" {
+			if err := c.fetchStsCredentials(); err != nil {
+				return nil, fmt.Errorf("fetch STS credentials failed: %w", err)
+			}
 		}
 	}
 	return c, nil
@@ -240,16 +261,60 @@ func (c *NacosClient) applyLoginFromMap(m map[string]interface{}) bool {
 	return true
 }
 
-// EnsureTokenValid ensures the access token is valid, refreshing if necessary
+// EnsureTokenValid ensures the access token / STS credentials are valid, refreshing if necessary
 func (c *NacosClient) EnsureTokenValid() error {
-	if c.AuthType != AuthTypeNacos {
+	switch c.AuthType {
+	case AuthTypeStsToken:
+		return c.ensureStsCredentials()
+	case AuthTypeNacos:
+		if c.AccessToken == "" {
+			return c.login()
+		}
+		if !c.TokenExpireAt.IsZero() && time.Now().Add(5*time.Second).After(c.TokenExpireAt) {
+			return c.login()
+		}
+	}
+	return nil
+}
+
+// ensureStsCredentials refreshes STS credentials if expired or about to expire
+func (c *NacosClient) ensureStsCredentials() error {
+	if c.StsURL == "" {
 		return nil
 	}
-	if c.AccessToken == "" {
-		return c.login()
+	if c.AccessKey == "" || c.SecretKey == "" || c.SecurityToken == "" {
+		return c.fetchStsCredentials()
 	}
-	if !c.TokenExpireAt.IsZero() && time.Now().Add(5*time.Second).After(c.TokenExpireAt) {
-		return c.login()
+	if !c.stsCredExpireAt.IsZero() && time.Now().Add(30*time.Second).After(c.stsCredExpireAt) {
+		return c.fetchStsCredentials()
+	}
+	return nil
+}
+
+// fetchStsCredentials calls the STS URL to obtain temporary AK/SK/SecurityToken
+func (c *NacosClient) fetchStsCredentials() error {
+	resp, err := c.httpClient.R().
+		SetHeader("Authorization", "Bearer "+c.StsAuthToken).
+		Get(c.StsURL)
+	if err != nil {
+		return fmt.Errorf("request STS URL failed: %w", err)
+	}
+	if resp.StatusCode() != 200 {
+		return fmt.Errorf("STS URL returned HTTP %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+	var stsResp stsTokenResponse
+	if err := json.Unmarshal(resp.Body(), &stsResp); err != nil {
+		return fmt.Errorf("failed to parse STS response: %w", err)
+	}
+	c.AccessKey = stsResp.AccessKeyID
+	c.SecretKey = stsResp.AccessKeySecret
+	c.SecurityToken = stsResp.SecurityToken
+	if stsResp.ExpiresInSec > 0 {
+		c.stsCredExpireAt = time.Now().Add(time.Duration(stsResp.ExpiresInSec) * time.Second)
+	} else if stsResp.Expiration != "" {
+		if t, err := time.Parse(time.RFC3339Nano, stsResp.Expiration); err == nil {
+			c.stsCredExpireAt = t
+		}
 	}
 	return nil
 }

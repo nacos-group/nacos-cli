@@ -92,13 +92,20 @@ Examples:
 			fmt.Println()
 			// Start interactive terminal with the edited config
 			var stsURLVal, stsAuthTokenVal string
-			if cfg.AuthType == "sts-url" {
-				stsURLVal = os.Getenv("STS_URL")
-				stsAuthTokenVal = os.Getenv("AUTH_TOKEN")
-				if stsURLVal == "" || stsAuthTokenVal == "" {
-					fmt.Fprintf(os.Stderr, "Error: sts-url auth requires STS_URL and AUTH_TOKEN environment variables\n")
+			if cfg.AuthType == "sts-hiclaw" {
+				controllerURL := os.Getenv("HICLAW_CONTROLLER_URL")
+				tokenFile := os.Getenv("HICLAW_AUTH_TOKEN_FILE")
+				if controllerURL == "" || tokenFile == "" {
+					fmt.Fprintf(os.Stderr, "Error: sts-hiclaw auth requires HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables\n")
 					os.Exit(1)
 				}
+				stsURLVal = strings.TrimRight(controllerURL, "/") + "/api/v1/credentials/sts"
+				data, err := os.ReadFile(tokenFile)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: failed to read HICLAW_AUTH_TOKEN_FILE (%s): %v\n", tokenFile, err)
+					os.Exit(1)
+				}
+				stsAuthTokenVal = strings.TrimSpace(string(data))
 			}
 			nacosClient, err := client.NewNacosClient(
 				cfg.GetServerAddr(),
@@ -177,8 +184,8 @@ Examples:
 		case "aliyun":
 			fmt.Printf("%-15s %s\n", "access-key:", cfg.AccessKey)
 			fmt.Printf("%-15s %s\n", "secret-key:", maskPassword(cfg.SecretKey))
-		case "sts-url":
-			fmt.Printf("%-15s %s\n", "credentials:", "from STS_URL and AUTH_TOKEN env vars")
+		case "sts-hiclaw":
+			fmt.Printf("%-15s %s\n", "credentials:", "from HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE env vars")
 		default:
 			fmt.Printf("%-15s %s\n", "username:", cfg.Username)
 			fmt.Printf("%-15s %s\n", "password:", maskPassword(cfg.Password))

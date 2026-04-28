@@ -26,6 +26,7 @@ var (
 	stsAuthToken  string
 	configFile    string
 	profileName   string // Profile name for config file (default, dev, prod, etc.)
+	verbose       bool   // Enable verbose/debug output
 )
 
 var rootCmd = &cobra.Command{
@@ -58,7 +59,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType == "sts-url"
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType == "sts-hiclaw"
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -108,9 +109,14 @@ Examples:
 			namespace = fileConfig.Namespace
 		}
 
-		// AuthType: command line > config file > auto-detect by NewNacosClient
+		// AuthType: command line > config file > env var > auto-detect by NewNacosClient
 		if authType == "" && fileConfig != nil && fileConfig.AuthType != "" {
 			authType = fileConfig.AuthType
+		}
+		if authType == "" {
+			if envAuthType := os.Getenv("NACOS_AUTH_TYPE"); envAuthType != "" {
+				authType = envAuthType
+			}
 		}
 
 		// Username: command line > config file
@@ -139,23 +145,57 @@ Examples:
 			serverAddr = "market.hiclaw.io:80"
 		}
 
-		// For sts-url auth, read STS_URL and AUTH_TOKEN from environment variables
-		if authType == "sts-url" {
+		// For sts-hiclaw auth, read HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE from environment variables
+		if authType == "sts-hiclaw" {
 			if stsURL == "" {
-				stsURL = os.Getenv("STS_URL")
+				controllerURL := os.Getenv("HICLAW_CONTROLLER_URL")
+				if controllerURL != "" {
+					stsURL = strings.TrimRight(controllerURL, "/") + "/api/v1/credentials/sts"
+				}
 			}
 			if stsAuthToken == "" {
-				stsAuthToken = os.Getenv("AUTH_TOKEN")
+				tokenFile := os.Getenv("HICLAW_AUTH_TOKEN_FILE")
+				if tokenFile != "" {
+					data, err := os.ReadFile(tokenFile)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Error: failed to read HICLAW_AUTH_TOKEN_FILE (%s): %v\n", tokenFile, err)
+						os.Exit(1)
+					}
+					stsAuthToken = strings.TrimSpace(string(data))
+				}
 			}
 			if stsURL == "" || stsAuthToken == "" {
-				fmt.Fprintf(os.Stderr, "Error: sts-url auth requires STS_URL and AUTH_TOKEN environment variables\n")
+				fmt.Fprintf(os.Stderr, "Error: sts-hiclaw auth requires HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables\n")
 				os.Exit(1)
 			}
-		} else if authType == "" && os.Getenv("STS_URL") != "" && os.Getenv("AUTH_TOKEN") != "" {
-			// Auto-detect sts-url auth from environment variables
-			authType = "sts-url"
-			stsURL = os.Getenv("STS_URL")
-			stsAuthToken = os.Getenv("AUTH_TOKEN")
+		} else if authType == "" && os.Getenv("HICLAW_CONTROLLER_URL") != "" && os.Getenv("HICLAW_AUTH_TOKEN_FILE") != "" {
+			// Auto-detect sts-hiclaw auth from environment variables
+			authType = "sts-hiclaw"
+			controllerURL := os.Getenv("HICLAW_CONTROLLER_URL")
+			stsURL = strings.TrimRight(controllerURL, "/") + "/api/v1/credentials/sts"
+			tokenFile := os.Getenv("HICLAW_AUTH_TOKEN_FILE")
+			data, err := os.ReadFile(tokenFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: failed to read HICLAW_AUTH_TOKEN_FILE (%s): %v\n", tokenFile, err)
+				os.Exit(1)
+			}
+			stsAuthToken = strings.TrimSpace(string(data))
+		}
+
+		if verbose {
+			fmt.Fprintf(os.Stderr, "[debug] authType=%s\n", authType)
+			fmt.Fprintf(os.Stderr, "[debug] serverAddr=%s\n", serverAddr)
+			fmt.Fprintf(os.Stderr, "[debug] namespace=%s\n", namespace)
+			if stsURL != "" {
+				fmt.Fprintf(os.Stderr, "[debug] stsURL=%s\n", stsURL)
+			}
+			if stsAuthToken != "" {
+				masked := stsAuthToken
+				if len(masked) > 10 {
+					masked = masked[:10] + "..."
+				}
+				fmt.Fprintf(os.Stderr, "[debug] stsAuthToken=%s\n", masked)
+			}
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -189,12 +229,13 @@ func init() {
 	// Global flags - legacy style (for backward compatibility)
 	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace ID")
-	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos | aliyun | sts-url")
+	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos | aliyun | sts-hiclaw")
 	rootCmd.PersistentFlags().StringVarP(&username, "username", "u", "", "Username (nacos auth)")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "Password (nacos auth)")
-	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/sts-url auth)")
-	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/sts-url auth)")
-	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (sts-url auth)")
+	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/sts-hiclaw auth)")
+	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/sts-hiclaw auth)")
+	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (sts-hiclaw auth)")
+	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose/debug output")
 
 	// Mark legacy server flag as deprecated but still functional
 	rootCmd.PersistentFlags().MarkDeprecated("server", "use --host and --port instead")
@@ -209,7 +250,9 @@ func checkError(err error) {
 
 // mustNewNacosClient creates a NacosClient and exits with a clear error message on failure (e.g. login failed).
 func mustNewNacosClient() *client.NacosClient {
-	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken)
+	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken, func(c *client.NacosClient) {
+		c.Verbose = verbose
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

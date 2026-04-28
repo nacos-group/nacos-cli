@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,10 +18,10 @@ import (
 )
 
 const (
-	AuthTypeNone     = "none"    // No authentication (public registry)
-	AuthTypeNacos    = "nacos"   // Username/password authentication
-	AuthTypeAliyun   = "aliyun"  // AccessKey/SecretKey authentication
-	AuthTypeStsToken = "sts-url" // STS temporary credential (AK/SK + SecurityToken)
+	AuthTypeNone     = "none"       // No authentication (public registry)
+	AuthTypeNacos    = "nacos"      // Username/password authentication
+	AuthTypeAliyun   = "aliyun"     // AccessKey/SecretKey authentication
+	AuthTypeStsToken = "sts-hiclaw" // STS temporary credential via Hiclaw controller
 )
 
 // stsTokenResponse represents the JSON response from the STS URL endpoint
@@ -42,13 +43,14 @@ type NacosClient struct {
 	AccessKey        string
 	SecretKey        string
 	SecurityToken    string // STS temporary security token
-	StsURL           string // STS credential endpoint URL (AuthType=sts-url)
-	StsAuthToken     string // Bearer token for STS URL authentication
+	StsURL           string // STS credential endpoint URL (AuthType=sts-hiclaw)
+	StsAuthToken     string // Bearer token for Hiclaw controller authentication
 	AccessToken      string
 	TokenExpireAt    time.Time
 	stsCredExpireAt  time.Time // expiration time of STS credentials
 	authLoginVersion string    // "v3" or "v1", determined by first successful login
 	httpClient       *resty.Client
+	Verbose          bool // Enable verbose/debug output
 }
 
 // Config represents a Nacos configuration
@@ -130,7 +132,7 @@ func ParseHTTPError(statusCode int, body []byte, operation string) error {
 
 // NewNacosClient creates a new Nacos client with automatic authentication.
 // Returns an error if login is required but fails (e.g. wrong credentials).
-func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken string) (*NacosClient, error) {
+func NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken string, opts ...func(*NacosClient)) (*NacosClient, error) {
 	if namespace == "" {
 		namespace = "public"
 	}
@@ -158,6 +160,10 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 		StsURL:        stsURL,
 		StsAuthToken:  stsAuthToken,
 		httpClient:    resty.New(),
+	}
+
+	for _, opt := range opts {
+		opt(c)
 	}
 
 	switch c.AuthType {
@@ -293,11 +299,18 @@ func (c *NacosClient) ensureStsCredentials() error {
 
 // fetchStsCredentials calls the STS URL to obtain temporary AK/SK/SecurityToken
 func (c *NacosClient) fetchStsCredentials() error {
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[debug] fetching STS credentials from: %s\n", c.StsURL)
+	}
 	resp, err := c.httpClient.R().
 		SetHeader("Authorization", "Bearer "+c.StsAuthToken).
-		Get(c.StsURL)
+		Post(c.StsURL)
 	if err != nil {
 		return fmt.Errorf("request STS URL failed: %w", err)
+	}
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[debug] STS response status: %d\n", resp.StatusCode())
+		fmt.Fprintf(os.Stderr, "[debug] STS response body: %s\n", string(resp.Body()))
 	}
 	if resp.StatusCode() != 200 {
 		return fmt.Errorf("STS URL returned HTTP %d: %s", resp.StatusCode(), string(resp.Body()))
@@ -309,6 +322,9 @@ func (c *NacosClient) fetchStsCredentials() error {
 	c.AccessKey = stsResp.AccessKeyID
 	c.SecretKey = stsResp.AccessKeySecret
 	c.SecurityToken = stsResp.SecurityToken
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[debug] STS credentials obtained: accessKey=%s\n", c.AccessKey)
+	}
 	if stsResp.ExpiresInSec > 0 {
 		c.stsCredExpireAt = time.Now().Add(time.Duration(stsResp.ExpiresInSec) * time.Second)
 	} else if stsResp.Expiration != "" {
@@ -344,7 +360,7 @@ func spasSign(signData, secretKey string) string {
 const aiResourceGroup = "DEFAULT_GROUP"
 
 // NewAuthedRequest creates an *http.Request with authentication headers already applied.
-// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/sts-url auth.
+// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/sts-hiclaw auth.
 // AI resource APIs (skill, agentspec) use namespaceId as tenant and DEFAULT_GROUP as group
 // for SPAS signature calculation.
 func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*http.Request, error) {
@@ -356,18 +372,26 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 	if c.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
-	// SPAS headers (aliyun/sts-url auth): tenant=namespaceId, group=DEFAULT_GROUP
+	// SPAS headers (aliyun/sts-hiclaw auth): tenant=namespaceId, group=DEFAULT_GROUP
 	if (c.AuthType == AuthTypeAliyun || c.AuthType == AuthTypeStsToken) && c.AccessKey != "" && c.SecretKey != "" {
 		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		tenant := c.Namespace
 		if tenant == "public" {
 			tenant = ""
 		}
+		signData := getSignData(tenant, aiResourceGroup, ts)
 		req.Header.Set("timeStamp", ts)
 		req.Header.Set("Spas-AccessKey", c.AccessKey)
-		req.Header.Set("Spas-Signature", spasSign(getSignData(tenant, aiResourceGroup, ts), c.SecretKey))
+		req.Header.Set("Spas-Signature", spasSign(signData, c.SecretKey))
 		if c.AuthType == AuthTypeStsToken && c.SecurityToken != "" {
 			req.Header.Set("Spas-SecurityToken", c.SecurityToken)
+		}
+		if c.Verbose {
+			fmt.Fprintf(os.Stderr, "[debug] request: %s %s\n", method, url)
+			fmt.Fprintf(os.Stderr, "[debug] SPAS tenant=%s group=%s ts=%s\n", tenant, aiResourceGroup, ts)
+			fmt.Fprintf(os.Stderr, "[debug] SPAS signData=%s\n", signData)
+			fmt.Fprintf(os.Stderr, "[debug] Spas-AccessKey=%s\n", c.AccessKey)
+			fmt.Fprintf(os.Stderr, "[debug] Spas-SecurityToken length=%d\n", len(c.SecurityToken))
 		}
 	}
 	return req, nil

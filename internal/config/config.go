@@ -22,7 +22,7 @@ const (
 type Config struct {
 	Host          string `yaml:"host"`
 	Port          int    `yaml:"port"`
-	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-url
+	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-hiclaw
 	Username      string `yaml:"username"`
 	Password      string `yaml:"password"`
 	AccessKey     string `yaml:"accessKey"`     // Aliyun AK (AuthType=aliyun)
@@ -139,8 +139,8 @@ func (c *Config) IsComplete() bool {
 		return c.AccessKey != "" && c.SecretKey != ""
 	}
 
-	if authType == "sts-url" {
-		// sts-url credentials are fetched dynamically from STS_URL env var
+	if authType == "sts-url" || authType == "sts-hiclaw" {
+		// sts-hiclaw credentials are fetched dynamically from HICLAW_CONTROLLER_URL env var
 		return true
 	}
 
@@ -170,8 +170,8 @@ func (c *Config) GetMissingFields() []string {
 		if c.SecretKey == "" {
 			missing = append(missing, "secretKey")
 		}
-	} else if authType == "sts-url" {
-		// sts-url credentials are fetched dynamically; no config fields required
+	} else if authType == "sts-url" || authType == "sts-hiclaw" {
+		// sts-hiclaw credentials are fetched dynamically; no config fields required
 	} else {
 		// Nacos auth
 		if c.Username == "" {
@@ -260,7 +260,7 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for auth type if not set
 	if c.AuthType == "" {
-		fmt.Print("Enter auth type (none/nacos/aliyun/sts-url) [none]: ")
+		fmt.Print("Enter auth type (none/nacos/aliyun/sts-hiclaw) [none]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read auth type: %w", err)
@@ -268,10 +268,13 @@ func (c *Config) PromptForMissingFields() error {
 		input = strings.TrimSpace(strings.ToLower(input))
 		if input == "" {
 			c.AuthType = "none"
-		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts-url" {
+		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts-hiclaw" || input == "sts-url" {
+			if input == "sts-url" {
+				input = "sts-hiclaw"
+			}
 			c.AuthType = input
 		} else {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-url')", input)
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-hiclaw')", input)
 		}
 	}
 
@@ -456,15 +459,18 @@ func (c *Config) PromptForUpdate() error {
 	if currentAuthType == "" {
 		currentAuthType = "none"
 	}
-	fmt.Printf("Enter auth type (none/nacos/aliyun/sts-url) [%s]: ", currentAuthType)
+	fmt.Printf("Enter auth type (none/nacos/aliyun/sts-hiclaw) [%s]: ", currentAuthType)
 	input, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read auth type: %w", err)
 	}
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input != "" {
-		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts-url" {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-url')", input)
+		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts-hiclaw" && input != "sts-url" {
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-hiclaw')", input)
+		}
+		if input == "sts-url" {
+			input = "sts-hiclaw"
 		}
 		c.AuthType = input
 	} else if c.AuthType == "" {
@@ -505,9 +511,9 @@ func (c *Config) PromptForUpdate() error {
 		if c.SecretKey == "" {
 			return fmt.Errorf("secret key is required for %s auth", c.AuthType)
 		}
-	} else if c.AuthType == "sts-url" {
-		// sts-url: credentials fetched dynamically from STS_URL env var
-		fmt.Println("Note: sts-url credentials are obtained from STS_URL and AUTH_TOKEN environment variables.")
+	} else if c.AuthType == "sts-hiclaw" {
+		// sts-hiclaw: credentials fetched dynamically from HICLAW_CONTROLLER_URL env var
+		fmt.Println("Note: sts-hiclaw credentials are obtained from HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables.")
 	} else if c.AuthType == "nacos" {
 		// Nacos auth - Username
 		currentUser := formatCurrent(c.Username, false)

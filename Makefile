@@ -7,7 +7,7 @@ BINARY_NAME=nacos-cli
 BUILD_DIR=build
 
 # Version
-VERSION?=1.0.2
+VERSION?=1.0.3
 
 # Git info
 COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")

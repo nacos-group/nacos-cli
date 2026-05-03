@@ -188,6 +188,7 @@ func (t *Terminal) printWelcome() {
 // For example: "skill-get my-skill --label latest -o /path" should recognize:
 //   - skill name: my-skill
 //   - flags: --label latest, -o /path
+//
 // This prevents flags and their values from being treated as additional skill names
 func parseCommandArgs(input string) (cmd string, args []string) {
 	parts := strings.Fields(input)
@@ -201,7 +202,7 @@ func parseCommandArgs(input string) (cmd string, args []string) {
 	// Parse remaining parts, handling flags properly
 	for i := 1; i < len(parts); i++ {
 		arg := parts[i]
-		
+
 		// Check if this is a flag
 		if strings.HasPrefix(arg, "-") {
 			args = append(args, arg)
@@ -211,7 +212,7 @@ func parseCommandArgs(input string) (cmd string, args []string) {
 				"--help": true, "-h": true,
 				"--all": true,
 			}
-			
+
 			// If it's a long flag (--flag), check if value is separate
 			if strings.HasPrefix(arg, "--") && !strings.Contains(arg, "=") {
 				if !booleanFlags[arg] && i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
@@ -515,7 +516,7 @@ func (t *Terminal) getSkill(args []string) {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		if arg == "--version" && i+1 < len(args) {
 			i++
 			version = args[i]
@@ -607,10 +608,10 @@ func (t *Terminal) getSkill(args []string) {
 	}
 }
 
-// uploadSkill uploads a skill
+// uploadSkill publishes a skill
 func (t *Terminal) uploadSkill(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: skill-upload <skillPath> or skill-upload --all <folder>")
+		fmt.Println("Usage: skill-publish <skillPath> or skill-publish --all <folder>")
 		return
 	}
 
@@ -638,7 +639,7 @@ func (t *Terminal) uploadSkill(args []string) {
 	if allFlagIndex >= 0 {
 		if folderPath == "" {
 			fmt.Println("Error: folder path required for --all flag")
-			fmt.Println("Usage: skill-upload --all <folder> or skill-upload <folder> --all")
+			fmt.Println("Usage: skill-publish --all <folder> or skill-publish <folder> --all")
 			return
 		}
 		t.uploadAllSkills(folderPath)
@@ -665,18 +666,18 @@ func (t *Terminal) uploadSkill(args []string) {
 		skillPath = homeDir
 	}
 
-	fmt.Printf("Uploading skill: %s...\n", skillPath)
+	fmt.Printf("Publishing skill: %s...\n", skillPath)
 
-	err := t.skillService.UploadSkill(skillPath)
+	err := t.skillService.PublishSkill(skillPath)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Skill uploaded successfully!\n")
+	fmt.Printf("Skill published and submitted successfully!\n")
 }
 
-// uploadAllSkills uploads all skills in a directory
+// uploadAllSkills publishes all skills in a directory
 func (t *Terminal) uploadAllSkills(folderPath string) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~/") {
@@ -731,16 +732,16 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 
 	for i, skillName := range skillDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Uploading skill: %s\n", i+1, len(skillDirs), skillName)
+		fmt.Printf("[%d/%d] Publishing skill: %s\n", i+1, len(skillDirs), skillName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		err := t.skillService.UploadSkill(skillPath)
+		err := t.skillService.PublishSkill(skillPath)
 		if err != nil {
-			fmt.Printf("Upload failed: %v\n", err)
+			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
 		} else {
-			fmt.Printf("Upload successful!\n")
+			fmt.Printf("Publish successful!\n")
 			successCount++
 		}
 		fmt.Println()
@@ -748,7 +749,7 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 
 	// Summary
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Upload Complete")
+	fmt.Println("Batch Publish Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -756,7 +757,7 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 	}
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use 'skill-list' to view all uploaded skills")
+	fmt.Println("Tip: Auto-publish after review depends on server configuration. Use 'skill-list' to verify.")
 }
 
 // listConfigs lists all configurations
@@ -1084,7 +1085,7 @@ func (t *Terminal) getAgentSpec(args []string) {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		if arg == "--version" && i+1 < len(args) {
 			i++
 			version = args[i]

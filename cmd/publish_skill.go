@@ -59,11 +59,11 @@ func publishSingleSkill(skillPath string, skillService *skill.SkillService) {
 	skillName := filepath.Base(absPath)
 	fmt.Printf("Publishing skill: %s...\n", skillName)
 
-	err = skillService.UploadSkill(absPath)
+	err = skillService.PublishSkill(absPath)
 	checkError(err)
 
-	fmt.Printf("Skill published successfully!\n")
-	fmt.Printf("  Tip: Use the Nacos console to review and go online, or use 'skill-list' to verify.\n")
+	fmt.Printf("Skill published and submitted successfully!\n")
+	fmt.Printf("  Tip: Auto-publish after review depends on server configuration. Use 'skill-list' to verify.\n")
 }
 
 func publishAllSkills(folderPath string, skillService *skill.SkillService) {
@@ -111,7 +111,7 @@ func publishAllSkills(folderPath string, skillService *skill.SkillService) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		err := skillService.UploadSkill(skillPath)
+		err := skillService.PublishSkill(skillPath)
 		if err != nil {
 			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
@@ -132,7 +132,7 @@ func publishAllSkills(folderPath string, skillService *skill.SkillService) {
 	}
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use the Nacos console to review and go online, or use 'skill-list' to verify.")
+	fmt.Println("Tip: Auto-publish after review depends on server configuration. Use 'skill-list' to verify.")
 }
 
 func init() {

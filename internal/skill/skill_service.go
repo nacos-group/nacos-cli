@@ -304,6 +304,63 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	return nil
 }
 
+// SubmitSkill submits the current draft skill version for review.
+func (s *SkillService) SubmitSkill(skillName string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("skillName", skillName)
+
+	submitURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/submit?%s",
+		s.client.ServerAddr, params.Encode())
+	req, err := s.client.NewAuthedRequest("POST", submitURL, nil)
+	if err != nil {
+		return err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("submit failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read submit response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return client.ParseHTTPError(resp.StatusCode, respBody, "submit skill")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return fmt.Errorf("parse submit response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return fmt.Errorf("submit skill failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	return nil
+}
+
+// PublishSkill uploads a skill and submits the draft for review.
+func (s *SkillService) PublishSkill(skillPath string) error {
+	if err := s.UploadSkill(skillPath); err != nil {
+		return err
+	}
+
+	skillName := filepath.Base(skillPath)
+	if strings.HasSuffix(strings.ToLower(skillName), ".zip") {
+		skillName = strings.TrimSuffix(skillName, filepath.Ext(skillName))
+	}
+	return s.SubmitSkill(skillName)
+}
+
 // ParseSkillMD parses SKILL.md file
 func (s *SkillService) ParseSkillMD(mdPath string) (*SkillInfo, error) {
 	content, err := os.ReadFile(mdPath)
@@ -338,4 +395,3 @@ func (s *SkillService) ParseSkillMD(mdPath string) (*SkillInfo, error) {
 
 	return &skillInfo, nil
 }
-

@@ -59,11 +59,11 @@ func publishSingleSkill(skillPath string, skillService *skill.SkillService) {
 	skillName := filepath.Base(absPath)
 	fmt.Printf("Publishing skill: %s...\n", skillName)
 
-	err = skillService.PublishSkill(absPath)
+	err = skillService.UploadSkill(absPath)
 	checkError(err)
 
-	fmt.Printf("Skill published and submitted successfully!\n")
-	fmt.Printf("  Tip: Auto-publish after review depends on server configuration. Use 'skill-list' to verify.\n")
+	fmt.Printf("Skill draft published successfully!\n")
+	fmt.Printf("  Tip: Use 'skill-submit %s' to submit the draft for review.\n", skillName)
 }
 
 func publishAllSkills(folderPath string, skillService *skill.SkillService) {
@@ -111,7 +111,7 @@ func publishAllSkills(folderPath string, skillService *skill.SkillService) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		err := skillService.PublishSkill(skillPath)
+		err := skillService.UploadSkill(skillPath)
 		if err != nil {
 			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
@@ -132,7 +132,7 @@ func publishAllSkills(folderPath string, skillService *skill.SkillService) {
 	}
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
-	fmt.Println("Tip: Auto-publish after review depends on server configuration. Use 'skill-list' to verify.")
+	fmt.Println("Tip: Use 'skill-submit <skillName>' to submit a draft for review.")
 }
 
 func init() {

@@ -304,8 +304,8 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	return nil
 }
 
-// SubmitSkill submits the current draft skill version for review.
-func (s *SkillService) SubmitSkill(skillName string) error {
+// SubmitSkill submits a draft skill version for review.
+func (s *SkillService) SubmitSkill(skillName, version string) error {
 	if err := s.client.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -313,6 +313,9 @@ func (s *SkillService) SubmitSkill(skillName string) error {
 	params := url.Values{}
 	params.Set("namespaceId", s.client.Namespace)
 	params.Set("skillName", skillName)
+	if version != "" {
+		params.Set("version", version)
+	}
 
 	submitURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/submit?%s",
 		s.client.ServerAddr, params.Encode())
@@ -346,19 +349,6 @@ func (s *SkillService) SubmitSkill(skillName string) error {
 	}
 
 	return nil
-}
-
-// PublishSkill uploads a skill and submits the draft for review.
-func (s *SkillService) PublishSkill(skillPath string) error {
-	if err := s.UploadSkill(skillPath); err != nil {
-		return err
-	}
-
-	skillName := filepath.Base(skillPath)
-	if strings.HasSuffix(strings.ToLower(skillName), ".zip") {
-		skillName = strings.TrimSuffix(skillName, filepath.Ext(skillName))
-	}
-	return s.SubmitSkill(skillName)
 }
 
 // ParseSkillMD parses SKILL.md file

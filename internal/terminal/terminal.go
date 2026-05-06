@@ -76,6 +76,11 @@ func completer() *readline.PrefixCompleter {
 			readline.PcItem("-h"),
 			readline.PcItem("--all"),
 		),
+		readline.PcItem("skill-submit",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--version"),
+		),
 		readline.PcItem("agentspec-list",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
@@ -264,6 +269,12 @@ func (t *Terminal) handleCommand(input string) {
 		} else {
 			t.uploadSkill(args)
 		}
+	case "skill-submit":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillSubmitHelp()
+		} else {
+			t.submitSkill(args)
+		}
 	case "skill-sync":
 		fmt.Println("\033[33mskill-sync has been removed.\033[0m")
 		fmt.Println("\033[90mUse 'skill-get' to download skills.\033[0m")
@@ -330,6 +341,7 @@ func (t *Terminal) showHelp() {
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-get", "Download a skill to ~/.skills", "skill-get <name> [--version v1] [--label stable]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-publish", "Publish a skill from local", "skill-publish <path>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Publish all skills in directory", "skill-publish --all <folder>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-submit", "Submit a skill draft for review", "skill-submit <name> [--version v1]")
 	fmt.Println()
 
 	// AgentSpec Management
@@ -608,7 +620,7 @@ func (t *Terminal) getSkill(args []string) {
 	}
 }
 
-// uploadSkill publishes a skill
+// uploadSkill publishes a skill draft
 func (t *Terminal) uploadSkill(args []string) {
 	if len(args) == 0 {
 		fmt.Println("Usage: skill-publish <skillPath> or skill-publish --all <folder>")
@@ -668,16 +680,17 @@ func (t *Terminal) uploadSkill(args []string) {
 
 	fmt.Printf("Publishing skill: %s...\n", skillPath)
 
-	err := t.skillService.PublishSkill(skillPath)
+	err := t.skillService.UploadSkill(skillPath)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Skill published and submitted successfully!\n")
+	fmt.Printf("Skill draft published successfully!\n")
+	fmt.Printf("Tip: Use 'skill-submit %s' to submit the draft for review.\n", filepath.Base(skillPath))
 }
 
-// uploadAllSkills publishes all skills in a directory
+// uploadAllSkills publishes all skill drafts in a directory
 func (t *Terminal) uploadAllSkills(folderPath string) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~/") {
@@ -736,7 +749,7 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		err := t.skillService.PublishSkill(skillPath)
+		err := t.skillService.UploadSkill(skillPath)
 		if err != nil {
 			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
@@ -757,6 +770,35 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 	}
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
+	fmt.Println("Tip: Use 'skill-submit <skillName>' to submit a draft for review.")
+}
+
+// submitSkill submits a skill draft for review
+func (t *Terminal) submitSkill(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: skill-submit <skillName> [--version <version>]")
+		return
+	}
+
+	skillName := args[0]
+	version := ""
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		}
+	}
+
+	fmt.Printf("Submitting skill draft: %s...\n", skillName)
+	if err := t.skillService.SubmitSkill(skillName, version); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Skill submitted successfully!\n")
 	fmt.Println("Tip: Auto-publish after review depends on server configuration. Use 'skill-list' to verify.")
 }
 
@@ -970,6 +1012,10 @@ func (t *Terminal) showSkillGetHelp() {
 
 func (t *Terminal) showSkillPublishHelp() {
 	help.SkillPublish.FormatForTerminal()
+}
+
+func (t *Terminal) showSkillSubmitHelp() {
+	help.SkillSubmit.FormatForTerminal()
 }
 
 func (t *Terminal) showConfigListHelp() {

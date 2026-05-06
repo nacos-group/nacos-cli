@@ -12,9 +12,8 @@ import (
 	"github.com/nacos-group/nacos-cli/internal/client"
 )
 
-func TestPublishSkillUploadsThenSubmits(t *testing.T) {
+func TestUploadSkillOnlyUploadsDraft(t *testing.T) {
 	var uploadCalled bool
-	var submitCalled bool
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -46,17 +45,7 @@ func TestPublishSkillUploadsThenSubmits(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusOK)
 		case "/nacos/v3/admin/ai/skills/submit":
-			submitCalled = true
-			if r.Method != http.MethodPost {
-				t.Fatalf("submit method = %s, want POST", r.Method)
-			}
-			if got := r.URL.Query().Get("namespaceId"); got != "test-ns" {
-				t.Fatalf("submit namespaceId = %s, want test-ns", got)
-			}
-			if got := r.URL.Query().Get("skillName"); got != "demo-skill" {
-				t.Fatalf("submit skillName = %s, want demo-skill", got)
-			}
-			_ = json.NewEncoder(w).Encode(V3Response{Code: 0, Message: "success"})
+			t.Fatal("upload should not submit skill draft")
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -76,11 +65,45 @@ func TestPublishSkillUploadsThenSubmits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := NewSkillService(nacosClient).PublishSkill(skillDir); err != nil {
+	if err := NewSkillService(nacosClient).UploadSkill(skillDir); err != nil {
 		t.Fatal(err)
 	}
 	if !uploadCalled {
 		t.Fatal("upload was not called")
+	}
+}
+
+func TestSubmitSkillSendsFormParams(t *testing.T) {
+	var submitCalled bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/admin/ai/skills/submit" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		submitCalled = true
+		if r.Method != http.MethodPost {
+			t.Fatalf("submit method = %s, want POST", r.Method)
+		}
+		if got := r.URL.Query().Get("namespaceId"); got != "test-ns" {
+			t.Fatalf("submit namespaceId = %s, want test-ns", got)
+		}
+		if got := r.URL.Query().Get("skillName"); got != "demo-skill" {
+			t.Fatalf("submit skillName = %s, want demo-skill", got)
+		}
+		if got := r.URL.Query().Get("version"); got != "1.0.0" {
+			t.Fatalf("submit version = %s, want 1.0.0", got)
+		}
+		_ = json.NewEncoder(w).Encode(V3Response{Code: 0, Message: "success"})
+	}))
+	defer server.Close()
+
+	nacosClient, err := client.NewNacosClient(strings.TrimPrefix(server.URL, "http://"), "test-ns", client.AuthTypeToken, "", "", "", "", "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewSkillService(nacosClient).SubmitSkill("demo-skill", "1.0.0"); err != nil {
+		t.Fatal(err)
 	}
 	if !submitCalled {
 		t.Fatal("submit was not called")

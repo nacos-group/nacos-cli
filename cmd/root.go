@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/nacos-group/nacos-cli/internal/client"
@@ -54,12 +55,16 @@ Examples:
 		}
 
 		// Determine config loading strategy
-		// Priority: --config > env arg > default
+		// Priority: --config > profile config > env vars > default
 		var fileConfig *config.Config
 		var err error
 
 		// Check if any connection parameters are provided via command line
 		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType == "sts-hiclaw"
+		envHost := strings.TrimSpace(os.Getenv("NACOS_HOST"))
+		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
+		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
+		hasEnvConfig := envHost != "" || envPortRaw != "" || envNamespace != ""
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -73,15 +78,28 @@ Examples:
 			if profileName != "" {
 				envName = profileName
 			}
-			// This will load, prompt for missing fields, and save
-			fileConfig, _, err = config.LoadOrCreateConfig(envName)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Failed to load or create config: %v\n", err)
-				os.Exit(1)
+			if hasEnvConfig {
+				configPath, pathErr := config.GetProfileConfigPath(envName)
+				if pathErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to resolve profile config path: %v\n", pathErr)
+				} else if _, statErr := os.Stat(configPath); statErr == nil {
+					fileConfig, err = config.LoadConfig(configPath)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: Failed to load config file: %v\n", err)
+					}
+				}
+			} else {
+				// This will load, prompt for missing fields, and save
+				fileConfig, _, err = config.LoadOrCreateConfig(envName)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: Failed to load or create config: %v\n", err)
+					os.Exit(1)
+				}
 			}
 		}
 
-		// Apply configuration with priority: command line > config file > default
+		// Apply configuration with priority: command line > config file > env vars > default
+		envPort := 0
 		// Server address: --server has highest priority
 		if serverAddr == "" {
 			// Try to build from --host and --port
@@ -98,18 +116,32 @@ Examples:
 			} else if port > 0 {
 				// Only port specified, use the local default host.
 				serverAddr = fmt.Sprintf("127.0.0.1:%d", port)
-			} else if fileConfig != nil {
+			} else if fileConfig != nil && fileConfig.GetServerAddr() != "" {
 				// Use from config file
 				serverAddr = fileConfig.GetServerAddr()
+			} else if envHost != "" {
+				envPort = parseNacosEnvPort(envPortRaw)
+				if envPort > 0 {
+					serverAddr = fmt.Sprintf("%s:%d", envHost, envPort)
+				} else if strings.Contains(envHost, ":") {
+					serverAddr = envHost
+				} else {
+					serverAddr = fmt.Sprintf("%s:8848", envHost)
+				}
+			} else if envPortRaw != "" {
+				serverAddr = fmt.Sprintf("127.0.0.1:%d", parseNacosEnvPort(envPortRaw))
 			}
 		}
 
-		// Namespace: command line > config file > default (empty)
+		// Namespace: command line > config file > env var > default (empty)
 		if namespace == "" && fileConfig != nil && fileConfig.Namespace != "" {
 			namespace = fileConfig.Namespace
 		}
+		if namespace == "" && envNamespace != "" {
+			namespace = envNamespace
+		}
 
-		// AuthType: command line > config file > env var > auto-detect by NewNacosClient
+		// AuthType: command line > config file > env var > client credential inference
 		if authType == "" && fileConfig != nil && fileConfig.AuthType != "" {
 			authType = fileConfig.AuthType
 		}
@@ -168,18 +200,6 @@ Examples:
 				fmt.Fprintf(os.Stderr, "Error: sts-hiclaw auth requires HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables\n")
 				os.Exit(1)
 			}
-		} else if authType == "" && os.Getenv("HICLAW_CONTROLLER_URL") != "" && os.Getenv("HICLAW_AUTH_TOKEN_FILE") != "" {
-			// Auto-detect sts-hiclaw auth from environment variables
-			authType = "sts-hiclaw"
-			controllerURL := os.Getenv("HICLAW_CONTROLLER_URL")
-			stsURL = strings.TrimRight(controllerURL, "/") + "/api/v1/credentials/sts"
-			tokenFile := os.Getenv("HICLAW_AUTH_TOKEN_FILE")
-			data, err := os.ReadFile(tokenFile)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: failed to read HICLAW_AUTH_TOKEN_FILE (%s): %v\n", tokenFile, err)
-				os.Exit(1)
-			}
-			stsAuthToken = strings.TrimSpace(string(data))
 		}
 
 		if verbose {
@@ -221,6 +241,18 @@ func SetVersionInfo(version, commit, date string) {
 // Execute runs the root command
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+func parseNacosEnvPort(rawPort string) int {
+	if rawPort == "" {
+		return 0
+	}
+	envPort, err := strconv.Atoi(rawPort)
+	if err != nil || envPort <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: invalid NACOS_PORT value %q\n", rawPort)
+		os.Exit(1)
+	}
+	return envPort
 }
 
 func init() {

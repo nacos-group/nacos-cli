@@ -420,10 +420,20 @@ namespace: ""
 Configuration values are applied in the following priority order:
 1. **Command line arguments** (highest priority)
 2. **Configuration file**
-3. **Default values** (lowest priority)
+3. **Environment variables**
+4. **Default values** (lowest priority)
+
+Supported environment variables:
+
+```bash
+export NACOS_HOST=127.0.0.1
+export NACOS_PORT=8848
+export NACOS_NAMESPACE=xxx
+```
 
 For example:
 - `nacos-cli --config ./local.conf --host 10.0.0.1` - Uses `10.0.0.1` from command line, other values from config file
+- `NACOS_HOST=127.0.0.1 NACOS_PORT=8848 NACOS_NAMESPACE=xxx nacos-cli skill-list` - Uses environment variables when command line and config file values are not provided
 - `nacos-cli` - Uses default `market.hiclaw.io:80` when neither `--host` nor `--port` is provided
 - `nacos-cli --host 127.0.0.1` - Uses `127.0.0.1:8848` because `--host` was provided without `--port`
 - `nacos-cli --port 8849` - Uses `127.0.0.1:8849` because only `--port` was provided

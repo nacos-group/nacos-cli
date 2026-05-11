@@ -317,27 +317,28 @@ func (c *NacosClient) doWithStsRetry(build func() (*resty.Response, error)) (*re
 	if resp.StatusCode() != 401 && resp.StatusCode() != 403 {
 		return resp, nil
 	}
-	if c.Verbose {
-		fmt.Fprintf(os.Stderr, "[debug] got HTTP %d, refreshing STS credentials and retrying once\n", resp.StatusCode())
-	}
+	fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: request returned HTTP %d, refreshing credentials and retrying once\n", resp.StatusCode())
 	if refreshErr := c.fetchStsCredentials(); refreshErr != nil {
-		if c.Verbose {
-			fmt.Fprintf(os.Stderr, "[debug] STS refresh failed: %v\n", refreshErr)
-		}
+		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: credential refresh failed during retry: %v\n", refreshErr)
 		return resp, nil
 	}
-	return build()
+	retryResp, retryErr := build()
+	if retryErr != nil {
+		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: retry after credential refresh failed: %v\n", retryErr)
+	} else {
+		fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: retry after credential refresh returned HTTP %d\n", retryResp.StatusCode())
+	}
+	return retryResp, retryErr
 }
 
 // fetchStsCredentials calls the STS URL to obtain temporary AK/SK/SecurityToken
 func (c *NacosClient) fetchStsCredentials() error {
-	if c.Verbose {
-		fmt.Fprintf(os.Stderr, "[debug] fetching STS credentials from: %s\n", c.StsURL)
-	}
+	fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: fetching STS credentials from %s\n", c.StsURL)
 	resp, err := c.httpClient.R().
 		SetHeader("Authorization", "Bearer "+c.StsAuthToken).
 		Post(c.StsURL)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: STS request failed: %v\n", err)
 		return fmt.Errorf("request STS URL failed: %w", err)
 	}
 	if c.Verbose {
@@ -345,6 +346,7 @@ func (c *NacosClient) fetchStsCredentials() error {
 		fmt.Fprintf(os.Stderr, "[debug] STS response body: %s\n", string(resp.Body()))
 	}
 	if resp.StatusCode() != 200 {
+		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: STS endpoint returned HTTP %d\n", resp.StatusCode())
 		return fmt.Errorf("STS URL returned HTTP %d: %s", resp.StatusCode(), string(resp.Body()))
 	}
 	var stsResp stsTokenResponse
@@ -370,7 +372,17 @@ func (c *NacosClient) fetchStsCredentials() error {
 		fmt.Fprintf(os.Stderr, "[warn] STS response missing expires_in_sec and expiration, falling back to default TTL %s\n", defaultStsCredTTL)
 		c.stsCredExpireAt = time.Now().Add(defaultStsCredTTL)
 	}
+	fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: STS credentials refreshed (accessKey=%s, expires=%s)\n",
+		maskAccessKey(c.AccessKey), c.stsCredExpireAt.Format(time.RFC3339))
 	return nil
+}
+
+// maskAccessKey returns a short masked form of an access key for logs (first 8 chars + ...).
+func maskAccessKey(ak string) string {
+	if len(ak) <= 8 {
+		return ak
+	}
+	return ak[:8] + "..."
 }
 
 // getSignData builds SPAS signature payload following Aliyun authentication specification

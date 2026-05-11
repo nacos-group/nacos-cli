@@ -24,6 +24,11 @@ const (
 	AuthTypeStsToken = "sts-hiclaw" // STS temporary credential via Hiclaw controller
 )
 
+// defaultStsCredTTL is used when the STS endpoint omits both expires_in_sec
+// and expiration — without it stsCredExpireAt would stay zero and the
+// credentials would never be refreshed proactively.
+const defaultStsCredTTL = 10 * time.Minute
+
 // stsTokenResponse represents the JSON response from the STS URL endpoint
 type stsTokenResponse struct {
 	AccessKeyID     string `json:"access_key_id"`
@@ -291,10 +296,37 @@ func (c *NacosClient) ensureStsCredentials() error {
 	if c.AccessKey == "" || c.SecretKey == "" || c.SecurityToken == "" {
 		return c.fetchStsCredentials()
 	}
-	if !c.stsCredExpireAt.IsZero() && time.Now().Add(30*time.Second).After(c.stsCredExpireAt) {
+	if time.Now().Add(30 * time.Second).After(c.stsCredExpireAt) {
 		return c.fetchStsCredentials()
 	}
 	return nil
+}
+
+// doWithStsRetry runs build(); if the response is 401/403 under sts-hiclaw auth,
+// it forces an STS credential refresh and invokes build() once more. The closure
+// must rebuild the request each call so the SPAS signature picks up the refreshed
+// credentials and a current timestamp.
+func (c *NacosClient) doWithStsRetry(build func() (*resty.Response, error)) (*resty.Response, error) {
+	resp, err := build()
+	if err != nil {
+		return resp, err
+	}
+	if c.AuthType != AuthTypeStsToken {
+		return resp, nil
+	}
+	if resp.StatusCode() != 401 && resp.StatusCode() != 403 {
+		return resp, nil
+	}
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[debug] got HTTP %d, refreshing STS credentials and retrying once\n", resp.StatusCode())
+	}
+	if refreshErr := c.fetchStsCredentials(); refreshErr != nil {
+		if c.Verbose {
+			fmt.Fprintf(os.Stderr, "[debug] STS refresh failed: %v\n", refreshErr)
+		}
+		return resp, nil
+	}
+	return build()
 }
 
 // fetchStsCredentials calls the STS URL to obtain temporary AK/SK/SecurityToken
@@ -330,7 +362,13 @@ func (c *NacosClient) fetchStsCredentials() error {
 	} else if stsResp.Expiration != "" {
 		if t, err := time.Parse(time.RFC3339Nano, stsResp.Expiration); err == nil {
 			c.stsCredExpireAt = t
+		} else {
+			fmt.Fprintf(os.Stderr, "[warn] failed to parse STS expiration %q (%v), falling back to default TTL %s\n", stsResp.Expiration, err, defaultStsCredTTL)
+			c.stsCredExpireAt = time.Now().Add(defaultStsCredTTL)
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] STS response missing expires_in_sec and expiration, falling back to default TTL %s\n", defaultStsCredTTL)
+		c.stsCredExpireAt = time.Now().Add(defaultStsCredTTL)
 	}
 	return nil
 }
@@ -446,12 +484,14 @@ func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo,
 	}
 
 	v3URL := fmt.Sprintf("http://%s/nacos/v3/admin/cs/config/list", c.ServerAddr)
-	req := c.httpClient.R().SetQueryString(params.Encode())
-	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-	}
-	c.setSpasHeaders(req, ns, groupName)
-	resp, err := req.Get(v3URL)
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetQueryString(params.Encode())
+		if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+			req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		}
+		c.setSpasHeaders(req, ns, groupName)
+		return req.Get(v3URL)
+	})
 
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -500,9 +540,11 @@ func (c *NacosClient) listConfigsV1(dataID, groupName, namespace string, pageNo,
 	}
 
 	v1URL := fmt.Sprintf("http://%s/nacos/v1/cs/configs", c.ServerAddr)
-	req := c.httpClient.R().SetQueryString(params.Encode())
-	c.setSpasHeaders(req, namespace, groupName)
-	resp, err := req.Get(v1URL)
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetQueryString(params.Encode())
+		c.setSpasHeaders(req, namespace, groupName)
+		return req.Get(v1URL)
+	})
 
 	if err != nil {
 		return nil, fmt.Errorf("v1 request failed: %w", err)
@@ -539,12 +581,14 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	}
 
 	apiURL := fmt.Sprintf("http://%s/nacos/v3/client/cs/config", c.ServerAddr)
-	req := c.httpClient.R().SetQueryString(params.Encode())
-	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-	}
-	c.setSpasHeaders(req, c.Namespace, group)
-	resp, err := req.Get(apiURL)
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetQueryString(params.Encode())
+		if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+			req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		}
+		c.setSpasHeaders(req, c.Namespace, group)
+		return req.Get(apiURL)
+	})
 
 	if err != nil {
 		return "", fmt.Errorf("get config failed: %w", err)
@@ -594,12 +638,14 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	}
 
 	apiURL := fmt.Sprintf("http://%s/nacos/v3/admin/cs/config", c.ServerAddr)
-	req := c.httpClient.R().SetFormData(params)
-	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
-	}
-	c.setSpasHeaders(req, c.Namespace, group)
-	resp, err := req.Post(apiURL)
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetFormData(params)
+		if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+			req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		}
+		c.setSpasHeaders(req, c.Namespace, group)
+		return req.Post(apiURL)
+	})
 
 	if err != nil {
 		return fmt.Errorf("publish config failed: %w", err)

@@ -28,10 +28,40 @@ type SkillInfo struct {
 	Description string `json:"description" yaml:"description"`
 }
 
-// SkillListItem represents a skill item in the list with name and description
+// SkillListItem represents a skill item in the list, mirroring the admin
+// SkillSummary payload returned by GET /v3/admin/ai/skills/list.
 type SkillListItem struct {
-	Name        string
-	Description string
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	Owner            string            `json:"owner,omitempty"`
+	Enable           bool              `json:"enable"`
+	Scope            string            `json:"scope,omitempty"`
+	BizTags          string            `json:"bizTags,omitempty"`
+	From             string            `json:"from,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	EditingVersion   string            `json:"editingVersion,omitempty"`
+	ReviewingVersion string            `json:"reviewingVersion,omitempty"`
+	OnlineCnt        *int              `json:"onlineCnt,omitempty"`
+	DownloadCount    *int64            `json:"downloadCount,omitempty"`
+	UpdateTime       *int64            `json:"updateTime,omitempty"`
+}
+
+// SkillVersionSummary mirrors com.alibaba.nacos.api.ai.model.skills.SkillMeta.SkillVersionSummary.
+type SkillVersionSummary struct {
+	Version             string `json:"version"`
+	Status              string `json:"status"`
+	Author              string `json:"author,omitempty"`
+	CommitMsg           string `json:"commitMsg,omitempty"`
+	CreateTime          *int64 `json:"createTime,omitempty"`
+	UpdateTime          *int64 `json:"updateTime,omitempty"`
+	PublishPipelineInfo string `json:"publishPipelineInfo,omitempty"`
+	DownloadCount       *int64 `json:"downloadCount,omitempty"`
+}
+
+// SkillDetail mirrors the admin SkillMeta payload (SkillSummary + versions).
+type SkillDetail struct {
+	SkillListItem
+	Versions []SkillVersionSummary `json:"versions,omitempty"`
 }
 
 // NewSkillService creates a new skill service
@@ -110,6 +140,59 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]Ski
 	}
 
 	return skillList.PageItems, skillList.TotalCount, nil
+}
+
+// DescribeSkill fetches the admin SkillMeta detail (governance + versions)
+// via GET /v3/admin/ai/skills?skillName=X&namespaceId=Y.
+func (s *SkillService) DescribeSkill(skillName string) (*SkillDetail, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(skillName) == "" {
+		return nil, fmt.Errorf("skillName is required")
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("skillName", skillName)
+
+	describeURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills?%s",
+		s.client.ServerAddr, params.Encode())
+
+	req, err := s.client.NewAuthedRequest("GET", describeURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("describe skill failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, client.ParseHTTPError(resp.StatusCode, respBody, "describe skill")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return nil, fmt.Errorf("parse response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return nil, fmt.Errorf("describe skill failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	var detail SkillDetail
+	if err := json.Unmarshal(v3Resp.Data, &detail); err != nil {
+		return nil, fmt.Errorf("parse skill detail failed: %w", err)
+	}
+	return &detail, nil
 }
 
 // GetSkill downloads a skill as ZIP via the Client Skill API and extracts it to local directory.
@@ -304,6 +387,111 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	return nil
 }
 
+// PublishSkill publishes an approved (reviewing) skill version to make it online.
+// By default, updates the `latest` route label to the published version.
+func (s *SkillService) PublishSkill(skillName, version string, updateLatestLabel bool) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(skillName) == "" {
+		return fmt.Errorf("skillName is required")
+	}
+	if strings.TrimSpace(version) == "" {
+		return fmt.Errorf("version is required")
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("skillName", skillName)
+	params.Set("version", version)
+	if updateLatestLabel {
+		params.Set("updateLatestLabel", "true")
+	} else {
+		params.Set("updateLatestLabel", "false")
+	}
+
+	publishURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/publish?%s",
+		s.client.ServerAddr, params.Encode())
+	req, err := s.client.NewAuthedRequest("POST", publishURL, nil)
+	if err != nil {
+		return err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("publish failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read publish response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return client.ParseHTTPError(resp.StatusCode, respBody, "publish skill")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return fmt.Errorf("parse publish response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return fmt.Errorf("publish skill failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	return nil
+}
+
+// SubmitSkill submits a draft skill version for review.
+func (s *SkillService) SubmitSkill(skillName, version string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("skillName", skillName)
+	if version != "" {
+		params.Set("version", version)
+	}
+
+	submitURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/skills/submit?%s",
+		s.client.ServerAddr, params.Encode())
+	req, err := s.client.NewAuthedRequest("POST", submitURL, nil)
+	if err != nil {
+		return err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("submit failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read submit response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return client.ParseHTTPError(resp.StatusCode, respBody, "submit skill")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return fmt.Errorf("parse submit response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return fmt.Errorf("submit skill failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	return nil
+}
+
 // ParseSkillMD parses SKILL.md file
 func (s *SkillService) ParseSkillMD(mdPath string) (*SkillInfo, error) {
 	content, err := os.ReadFile(mdPath)
@@ -338,4 +526,3 @@ func (s *SkillService) ParseSkillMD(mdPath string) (*SkillInfo, error) {
 
 	return &skillInfo, nil
 }
-

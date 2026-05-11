@@ -1,11 +1,14 @@
 package terminal
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/chzyer/readline"
 	"github.com/nacos-group/nacos-cli/internal/agentspec"
@@ -63,28 +66,78 @@ func completer() *readline.PrefixCompleter {
 		readline.PcItem("skill-list",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
+			readline.PcItem("--name"),
+			readline.PcItem("--page"),
+			readline.PcItem("--size"),
+			readline.PcItem("--output"),
+		),
+		readline.PcItem("skill-describe",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--output"),
 		),
 		readline.PcItem("skill-get",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
+		),
+		readline.PcItem("skill-upload",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--all"),
 		),
 		readline.PcItem("skill-publish",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
 			readline.PcItem("--all"),
 		),
+		readline.PcItem("skill-review",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--version"),
+		),
+		readline.PcItem("skill-release",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--version"),
+			readline.PcItem("--update-latest"),
+		),
 		readline.PcItem("agentspec-list",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
+			readline.PcItem("--name"),
+			readline.PcItem("--page"),
+			readline.PcItem("--size"),
+			readline.PcItem("--output"),
+		),
+		readline.PcItem("agentspec-describe",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--output"),
 		),
 		readline.PcItem("agentspec-get",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
 		),
+		readline.PcItem("agentspec-upload",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--all"),
+		),
 		readline.PcItem("agentspec-publish",
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
 			readline.PcItem("--all"),
+		),
+		readline.PcItem("agentspec-review",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--version"),
+		),
+		readline.PcItem("agentspec-release",
+			readline.PcItem("--help"),
+			readline.PcItem("-h"),
+			readline.PcItem("--version"),
+			readline.PcItem("--update-latest"),
 		),
 		readline.PcItem("config-list",
 			readline.PcItem("--help"),
@@ -251,17 +304,41 @@ func (t *Terminal) handleCommand(input string) {
 		} else {
 			t.listSkills(args)
 		}
+	case "skill-describe":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillDescribeHelp()
+		} else {
+			t.describeSkill(args)
+		}
 	case "skill-get":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 			t.showSkillGetHelp()
 		} else {
 			t.getSkill(args)
 		}
+	case "skill-upload":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillUploadHelp()
+		} else {
+			t.uploadSkill(args)
+		}
 	case "skill-publish":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 			t.showSkillPublishHelp()
 		} else {
-			t.uploadSkill(args)
+			t.publishLegacy(args)
+		}
+	case "skill-review":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillReviewHelp()
+		} else {
+			t.submitSkill(args)
+		}
+	case "skill-release":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillReleaseHelp()
+		} else {
+			t.releaseSkill(args)
 		}
 	case "skill-sync":
 		fmt.Println("\033[33mskill-sync has been removed.\033[0m")
@@ -272,17 +349,41 @@ func (t *Terminal) handleCommand(input string) {
 		} else {
 			t.listAgentSpecs(args)
 		}
+	case "agentspec-describe":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showAgentSpecDescribeHelp()
+		} else {
+			t.describeAgentSpec(args)
+		}
 	case "agentspec-get":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 			t.showAgentSpecGetHelp()
 		} else {
 			t.getAgentSpec(args)
 		}
+	case "agentspec-upload":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showAgentSpecUploadHelp()
+		} else {
+			t.uploadAgentSpec(args)
+		}
 	case "agentspec-publish":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 			t.showAgentSpecPublishHelp()
 		} else {
-			t.publishAgentSpec(args)
+			t.publishAgentSpecLegacy(args)
+		}
+	case "agentspec-review":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showAgentSpecReviewHelp()
+		} else {
+			t.submitAgentSpec(args)
+		}
+	case "agentspec-release":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showAgentSpecReleaseHelp()
+		} else {
+			t.releaseAgentSpec(args)
 		}
 	case "config-list":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
@@ -325,19 +426,27 @@ func (t *Terminal) showHelp() {
 	// Skill Management
 	fmt.Println("\033[1;33mSkill Management\033[0m")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-list", "List all skills", "skill-list [options]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size", "")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size, --output", "")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-describe", "Show skill detail + versions", "skill-describe <name> [--output json]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-get", "Download a skill to ~/.skills", "skill-get <name> [--version v1] [--label stable]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-publish", "Publish a skill from local", "skill-publish <path>")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Publish all skills in directory", "skill-publish --all <folder>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-upload", "Upload a skill draft (editing)", "skill-upload <path>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all skills in directory", "skill-upload --all <folder>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-review", "Submit a draft for review", "skill-review <name> [--version v1]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-release", "Release an approved version", "skill-release <name> --version v1")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-publish", "[DEPRECATED] upload + review", "skill-publish <path> (use skill-upload/review)")
 	fmt.Println()
 
 	// AgentSpec Management
 	fmt.Println("\033[1;33mAgentSpec Management\033[0m")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-list", "List all agent specs", "agentspec-list [options]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size", "")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size, --output", "")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-describe", "Show agent spec detail + versions", "agentspec-describe <name> [--output json]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-get", "Download an agent spec to ~/.agentspecs", "agentspec-get <name> [--version v1] [--label stable]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-publish", "Publish an agent spec from local", "agentspec-publish <path>")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Publish all agent specs in directory", "agentspec-publish --all <folder>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-upload", "Upload an agent spec draft (editing)", "agentspec-upload <path>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all agent specs in directory", "agentspec-upload --all <folder>")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-review", "Submit a draft for review", "agentspec-review <name> [--version v1]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-release", "Release an approved version", "agentspec-release <name> --version v1")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-publish", "[DEPRECATED] upload + review", "agentspec-publish <path> (use upload/review)")
 	fmt.Println()
 
 	// Configuration Management
@@ -494,14 +603,158 @@ func (t *Terminal) listSkills(args []string) {
 
 	fmt.Printf("\n\033[1;36mSkill List\033[0m \033[90m(Page: %d/%d, Total: %d)\033[0m\n", page, (totalCount+size-1)/size, totalCount)
 	fmt.Println("\033[36m═══════════════════════════════════════════════════════════════════════════════\033[0m")
-	for i, skill := range skills {
-		if skill.Description != "" {
-			desc := truncateDesc(skill.Description, defaultDescLimit)
-			fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m \033[90m- %s\033[0m\n", (page-1)*size+i+1, skill.Name, desc)
-		} else {
-			fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m\n", (page-1)*size+i+1, skill.Name)
-		}
+	for i, s := range skills {
+		t.printSkillSummaryLine((page-1)*size+i+1, s)
 	}
+}
+
+// printSkillSummaryLine renders one skill with governance info (colorized).
+func (t *Terminal) printSkillSummaryLine(idx int, s skill.SkillListItem) {
+	if s.Description != "" {
+		desc := truncateDesc(s.Description, defaultDescLimit)
+		fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m \033[90m- %s\033[0m\n", idx, s.Name, desc)
+	} else {
+		fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m\n", idx, s.Name)
+	}
+
+	latest := dashIfEmptyTerm(s.Labels["latest"])
+	editing := dashIfEmptyTerm(s.EditingVersion)
+	reviewing := dashIfEmptyTerm(s.ReviewingVersion)
+	onlineCnt := "-"
+	if s.OnlineCnt != nil {
+		onlineCnt = fmt.Sprintf("%d", *s.OnlineCnt)
+	}
+	statusLabel := "\033[32menabled\033[0m"
+	if !s.Enable {
+		statusLabel = "\033[31mdisabled\033[0m"
+	}
+	fmt.Printf("     \033[90mlatest=\033[0m%s  \033[90mediting=\033[0m%s  \033[90mreviewing=\033[0m%s  \033[90monline=\033[0m%s  %s\n",
+		latest, editing, reviewing, onlineCnt, statusLabel)
+
+	var meta []string
+	if s.Scope != "" {
+		meta = append(meta, "scope="+s.Scope)
+	}
+	if s.Owner != "" {
+		meta = append(meta, "owner="+s.Owner)
+	}
+	if s.UpdateTime != nil && *s.UpdateTime > 0 {
+		meta = append(meta, "updated="+time.UnixMilli(*s.UpdateTime).Format("2006-01-02 15:04:05"))
+	}
+	if s.DownloadCount != nil && *s.DownloadCount > 0 {
+		meta = append(meta, fmt.Sprintf("downloads=%d", *s.DownloadCount))
+	}
+	if len(meta) > 0 {
+		fmt.Printf("     \033[90m%s\033[0m\n", strings.Join(meta, "  "))
+	}
+}
+
+func dashIfEmptyTerm(v string) string {
+	if v == "" {
+		return "-"
+	}
+	return v
+}
+
+// describeSkill fetches and prints a skill's detail including version list.
+func (t *Terminal) describeSkill(args []string) {
+	if len(args) == 0 {
+		fmt.Println("\033[31mUsage:\033[0m skill-describe <skillName>")
+		return
+	}
+	skillName := args[0]
+
+	fmt.Print("\033[90mFetching skill detail...\033[0m\r")
+	detail, err := t.skillService.DescribeSkill(skillName)
+	fmt.Print("\033[K")
+	if err != nil {
+		fmt.Printf("\033[31mError:\033[0m %v\n", err)
+		return
+	}
+
+	fmt.Printf("\n\033[1;36mSkill:\033[0m \033[32m%s\033[0m\n", detail.Name)
+	fmt.Println("\033[36m═══════════════════════════════════════════════════════════════════════════════\033[0m")
+	if detail.Description != "" {
+		fmt.Printf("  \033[90mdescription:\033[0m %s\n", detail.Description)
+	}
+
+	statusLabel := "\033[32menabled\033[0m"
+	if !detail.Enable {
+		statusLabel = "\033[31mdisabled\033[0m"
+	}
+	onlineCnt := "-"
+	if detail.OnlineCnt != nil {
+		onlineCnt = fmt.Sprintf("%d", *detail.OnlineCnt)
+	}
+	fmt.Printf("  \033[90mlatest=\033[0m%s  \033[90mediting=\033[0m%s  \033[90mreviewing=\033[0m%s  \033[90monline=\033[0m%s  %s\n",
+		dashIfEmptyTerm(detail.Labels["latest"]),
+		dashIfEmptyTerm(detail.EditingVersion),
+		dashIfEmptyTerm(detail.ReviewingVersion),
+		onlineCnt,
+		statusLabel,
+	)
+
+	var meta []string
+	if detail.Scope != "" {
+		meta = append(meta, "scope="+detail.Scope)
+	}
+	if detail.Owner != "" {
+		meta = append(meta, "owner="+detail.Owner)
+	}
+	if detail.UpdateTime != nil && *detail.UpdateTime > 0 {
+		meta = append(meta, "updated="+time.UnixMilli(*detail.UpdateTime).Format("2006-01-02 15:04:05"))
+	}
+	if detail.DownloadCount != nil && *detail.DownloadCount > 0 {
+		meta = append(meta, fmt.Sprintf("downloads=%d", *detail.DownloadCount))
+	}
+	if len(meta) > 0 {
+		fmt.Printf("  \033[90m%s\033[0m\n", strings.Join(meta, "  "))
+	}
+
+	fmt.Println()
+	fmt.Println("\033[1;33mVersions:\033[0m")
+	if len(detail.Versions) == 0 {
+		fmt.Println("  \033[90m(none)\033[0m")
+		return
+	}
+
+	versions := make([]skill.SkillVersionSummary, len(detail.Versions))
+	copy(versions, detail.Versions)
+	sort.SliceStable(versions, func(i, j int) bool {
+		ti := termVersionSortKey(versions[i])
+		tj := termVersionSortKey(versions[j])
+		if ti != tj {
+			return ti > tj
+		}
+		return versions[i].Version > versions[j].Version
+	})
+
+	fmt.Printf("  \033[90m%-12s  %-10s  %-12s  %-19s  %s\033[0m\n", "VERSION", "STATUS", "AUTHOR", "UPDATED", "COMMIT")
+	for _, v := range versions {
+		updated := "-"
+		if v.UpdateTime != nil && *v.UpdateTime > 0 {
+			updated = time.UnixMilli(*v.UpdateTime).Format("2006-01-02 15:04:05")
+		}
+		commit := strings.ReplaceAll(v.CommitMsg, "\n", " ")
+		commit = truncateDesc(commit, 60)
+		fmt.Printf("  %-12s  %-10s  %-12s  %-19s  %s\n",
+			v.Version,
+			dashIfEmptyTerm(v.Status),
+			dashIfEmptyTerm(v.Author),
+			updated,
+			commit,
+		)
+	}
+}
+
+func termVersionSortKey(v skill.SkillVersionSummary) int64 {
+	if v.UpdateTime != nil {
+		return *v.UpdateTime
+	}
+	if v.CreateTime != nil {
+		return *v.CreateTime
+	}
+	return 0
 }
 
 // getSkill downloads one or more skills
@@ -610,7 +863,7 @@ func (t *Terminal) getSkill(args []string) {
 	}
 }
 
-// uploadSkill uploads a skill
+// uploadSkill uploads a skill draft (editing state)
 func (t *Terminal) uploadSkill(args []string) {
 	if len(args) == 0 {
 		fmt.Println("Usage: skill-upload <skillPath> or skill-upload --all <folder>")
@@ -676,10 +929,11 @@ func (t *Terminal) uploadSkill(args []string) {
 		return
 	}
 
-	fmt.Printf("Skill uploaded successfully!\n")
+	fmt.Printf("Skill draft uploaded successfully!\n")
+	fmt.Printf("Tip: Use 'skill-review %s' to submit the draft for review.\n", filepath.Base(skillPath))
 }
 
-// uploadAllSkills uploads all skills in a directory
+// uploadAllSkills publishes all skill drafts in a directory
 func (t *Terminal) uploadAllSkills(folderPath string) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~/") {
@@ -734,16 +988,16 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 
 	for i, skillName := range skillDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Uploading skill: %s\n", i+1, len(skillDirs), skillName)
+		fmt.Printf("[%d/%d] Publishing skill: %s\n", i+1, len(skillDirs), skillName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
 		err := t.skillService.UploadSkill(skillPath)
 		if err != nil {
-			fmt.Printf("Upload failed: %v\n", err)
+			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
 		} else {
-			fmt.Printf("Upload successful!\n")
+			fmt.Printf("Publish successful!\n")
 			successCount++
 		}
 		fmt.Println()
@@ -751,7 +1005,7 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 
 	// Summary
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Upload Complete")
+	fmt.Println("Batch Publish Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -759,7 +1013,179 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 	}
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use 'skill-list' to view all uploaded skills")
+	fmt.Println("Tip: Use 'skill-review <skillName>' to submit a draft for review.")
+}
+
+// submitSkill submits a skill draft for review (editing -> reviewing)
+func (t *Terminal) submitSkill(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: skill-review <skillName> [--version <version>]")
+		return
+	}
+
+	skillName := args[0]
+	version := ""
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		}
+	}
+
+	fmt.Printf("Submitting skill for review: %s...\n", skillName)
+	if err := t.skillService.SubmitSkill(skillName, version); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Skill submitted for review successfully!\n")
+	fmt.Printf("Tip: After the review passes, run 'skill-release %s --version <ver>' to publish it online.\n", skillName)
+}
+
+// releaseSkill publishes an approved skill version (reviewing -> online)
+func (t *Terminal) releaseSkill(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: skill-release <skillName> --version <version> [--update-latest=true|false]")
+		return
+	}
+
+	skillName := args[0]
+	version := ""
+	updateLatest := true
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		} else if arg == "--update-latest=false" || arg == "--update-latest=False" {
+			updateLatest = false
+		} else if arg == "--update-latest=true" || arg == "--update-latest=True" {
+			updateLatest = true
+		} else if arg == "--update-latest" && i+1 < len(args) {
+			i++
+			updateLatest = args[i] != "false" && args[i] != "False" && args[i] != "0"
+		}
+	}
+
+	if version == "" {
+		fmt.Println("Error: --version is required for skill-release")
+		return
+	}
+
+	fmt.Printf("Releasing skill: %s@%s (updateLatest=%v)...\n", skillName, version, updateLatest)
+	if err := t.skillService.PublishSkill(skillName, version, updateLatest); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		maybePrintReleaseRetryHintTerm(err, "skill", skillName)
+		return
+	}
+	fmt.Printf("Skill released successfully! %s@%s is now online.\n", skillName, version)
+}
+
+// publishLegacy runs upload + review as a backward-compatible shortcut for the
+// deprecated skill-publish command.
+func (t *Terminal) publishLegacy(args []string) {
+	fmt.Println("\033[33m[DEPRECATED] 'skill-publish' will be removed in a future release.\033[0m")
+	fmt.Println("\033[90m  It now runs 'skill-upload' + 'skill-review' for compatibility.\033[0m")
+	fmt.Println("\033[90m  Please migrate to: skill-upload -> skill-review -> skill-release.\033[0m")
+
+	if len(args) == 0 {
+		fmt.Println("Usage: skill-publish <skillPath> or skill-publish --all <folder>")
+		return
+	}
+
+	// Reuse upload logic; on success, automatically submit for review.
+	// For simplicity in interactive mode, batch --all is handled by uploadSkill,
+	// which only performs upload; we then iterate submit using the folder entries.
+	hasAll := false
+	folderPath := ""
+	for i, a := range args {
+		if a == "--all" {
+			hasAll = true
+			if i+1 < len(args) {
+				folderPath = args[i+1]
+			} else if i > 0 {
+				folderPath = args[i-1]
+			}
+			break
+		}
+	}
+
+	if hasAll {
+		if folderPath == "" {
+			fmt.Println("Error: folder path required for --all flag")
+			return
+		}
+		// Upload all first, then submit all drafts for review.
+		t.uploadAllSkills(folderPath)
+		t.reviewAllSkills(folderPath)
+		return
+	}
+
+	skillPath := args[0]
+	if strings.HasPrefix(skillPath, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			skillPath = filepath.Join(homeDir, skillPath[2:])
+		}
+	} else if skillPath == "~" {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			skillPath = homeDir
+		}
+	}
+
+	skillName := filepath.Base(skillPath)
+	if strings.HasSuffix(strings.ToLower(skillName), ".zip") {
+		skillName = strings.TrimSuffix(skillName, filepath.Ext(skillName))
+	}
+
+	fmt.Printf("[1/2] Uploading skill: %s...\n", skillPath)
+	if err := t.skillService.UploadSkill(skillPath); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Upload successful.\n")
+
+	fmt.Printf("[2/2] Submitting skill for review: %s...\n", skillName)
+	if err := t.skillService.SubmitSkill(skillName, ""); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Submitted for review successfully.\n")
+	fmt.Printf("Tip: After the review passes, run 'skill-release %s --version <ver>' to publish online.\n", skillName)
+}
+
+// reviewAllSkills submits every skill directory (with SKILL.md) under folderPath for review.
+func (t *Terminal) reviewAllSkills(folderPath string) {
+	if strings.HasPrefix(folderPath, "~/") {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			folderPath = filepath.Join(homeDir, folderPath[2:])
+		}
+	}
+	entries, err := os.ReadDir(folderPath)
+	if err != nil {
+		fmt.Printf("Error reading folder: %v\n", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(folderPath, entry.Name(), "SKILL.md")); err != nil {
+			continue
+		}
+		skillName := entry.Name()
+		fmt.Printf("Submitting skill for review: %s...\n", skillName)
+		if err := t.skillService.SubmitSkill(skillName, ""); err != nil {
+			fmt.Printf("  Failed: %v\n", err)
+			continue
+		}
+		fmt.Printf("  OK\n")
+	}
 }
 
 // listConfigs lists all configurations
@@ -966,12 +1392,28 @@ func (t *Terminal) showSkillListHelp() {
 	help.SkillList.FormatForTerminal()
 }
 
+func (t *Terminal) showSkillDescribeHelp() {
+	help.SkillDescribe.FormatForTerminal()
+}
+
 func (t *Terminal) showSkillGetHelp() {
 	help.SkillGet.FormatForTerminal()
 }
 
 func (t *Terminal) showSkillPublishHelp() {
 	help.SkillPublish.FormatForTerminal()
+}
+
+func (t *Terminal) showSkillUploadHelp() {
+	help.SkillUpload.FormatForTerminal()
+}
+
+func (t *Terminal) showSkillReviewHelp() {
+	help.SkillReview.FormatForTerminal()
+}
+
+func (t *Terminal) showSkillReleaseHelp() {
+	help.SkillRelease.FormatForTerminal()
 }
 
 func (t *Terminal) showConfigListHelp() {
@@ -997,8 +1439,24 @@ func (t *Terminal) showAgentSpecListHelp() {
 	help.AgentSpecList.FormatForTerminal()
 }
 
+func (t *Terminal) showAgentSpecDescribeHelp() {
+	help.AgentSpecDescribe.FormatForTerminal()
+}
+
 func (t *Terminal) showAgentSpecGetHelp() {
 	help.AgentSpecGet.FormatForTerminal()
+}
+
+func (t *Terminal) showAgentSpecUploadHelp() {
+	help.AgentSpecUpload.FormatForTerminal()
+}
+
+func (t *Terminal) showAgentSpecReviewHelp() {
+	help.AgentSpecReview.FormatForTerminal()
+}
+
+func (t *Terminal) showAgentSpecReleaseHelp() {
+	help.AgentSpecRelease.FormatForTerminal()
 }
 
 func (t *Terminal) showAgentSpecPublishHelp() {
@@ -1010,42 +1468,72 @@ func (t *Terminal) listAgentSpecs(args []string) {
 	// Parse flags
 	var name string
 	var page, size int = 1, 20
+	output := "pretty"
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if strings.HasPrefix(arg, "--name=") {
+		switch {
+		case strings.HasPrefix(arg, "--name="):
 			name = strings.TrimPrefix(arg, "--name=")
-		} else if arg == "--name" && i+1 < len(args) {
+		case arg == "--name" && i+1 < len(args):
 			i++
 			name = args[i]
-		} else if strings.HasPrefix(arg, "--page=") {
-			value := strings.TrimPrefix(arg, "--page=")
-			if value != "" {
-				fmt.Sscanf(value, "%d", &page)
+		case strings.HasPrefix(arg, "--page="):
+			v := strings.TrimPrefix(arg, "--page=")
+			if v != "" {
+				fmt.Sscanf(v, "%d", &page)
 			}
-		} else if arg == "--page" && i+1 < len(args) {
+		case arg == "--page" && i+1 < len(args):
 			i++
 			fmt.Sscanf(args[i], "%d", &page)
-		} else if strings.HasPrefix(arg, "--size=") {
-			value := strings.TrimPrefix(arg, "--size=")
-			if value != "" {
-				fmt.Sscanf(value, "%d", &size)
+		case strings.HasPrefix(arg, "--size="):
+			v := strings.TrimPrefix(arg, "--size=")
+			if v != "" {
+				fmt.Sscanf(v, "%d", &size)
 			}
-		} else if arg == "--size" && i+1 < len(args) {
+		case arg == "--size" && i+1 < len(args):
 			i++
 			fmt.Sscanf(args[i], "%d", &size)
+		case strings.HasPrefix(arg, "--output="):
+			output = strings.TrimPrefix(arg, "--output=")
+		case arg == "--output" && i+1 < len(args):
+			i++
+			output = args[i]
+		case arg == "-o" && i+1 < len(args):
+			i++
+			output = args[i]
 		}
 	}
 
-	fmt.Print("\033[90mFetching agent specs...\033[0m\r")
+	if output != "pretty" && output != "json" {
+		fmt.Printf("\033[31mError:\033[0m unsupported output format %q (expected pretty or json)\n", output)
+		return
+	}
+
+	if output == "pretty" {
+		fmt.Print("\033[90mFetching agent specs...\033[0m\r")
+	}
 
 	specs, totalCount, err := t.agentSpecService.ListAgentSpecs(name, "", page, size)
+	if output == "pretty" {
+		fmt.Print("\033[K") // Clear line
+	}
 	if err != nil {
 		fmt.Printf("\033[31mError:\033[0m %v\n", err)
 		return
 	}
 
-	fmt.Print("\033[K") // Clear line
+	if output == "json" {
+		payload := map[string]interface{}{
+			"totalCount": totalCount,
+			"page":       page,
+			"size":       size,
+			"items":      specs,
+		}
+		b, _ := json.MarshalIndent(payload, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
 
 	if len(specs) == 0 {
 		totalPages := (totalCount + size - 1) / size
@@ -1059,18 +1547,54 @@ func (t *Terminal) listAgentSpecs(args []string) {
 
 	fmt.Printf("\n\033[1;36mAgentSpec List\033[0m \033[90m(Page: %d/%d, Total: %d)\033[0m\n", page, (totalCount+size-1)/size, totalCount)
 	fmt.Println("\033[36m═══════════════════════════════════════════════════════════════════════════════\033[0m")
-	for i, spec := range specs {
-		enableStr := "\033[32menabled\033[0m"
-		if !spec.Enable {
-			enableStr = "\033[31mdisabled\033[0m"
-		}
-		if spec.Description != nil && *spec.Description != "" {
-			desc := truncateDesc(*spec.Description, defaultDescLimit)
-			fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m \033[90m- %s\033[0m [%s, \033[90monline:%d\033[0m]\n", (page-1)*size+i+1, spec.Name, desc, enableStr, spec.OnlineCnt)
-		} else {
-			fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m [%s, \033[90monline:%d\033[0m]\n", (page-1)*size+i+1, spec.Name, enableStr, spec.OnlineCnt)
-		}
+	for i, s := range specs {
+		t.printAgentSpecSummaryLine((page-1)*size+i+1, s)
 	}
+}
+
+// printAgentSpecSummaryLine renders one agent spec with governance info (colorized).
+func (t *Terminal) printAgentSpecSummaryLine(idx int, s agentspec.AgentSpecListItem) {
+	desc := strOrEmptyTerm(s.Description)
+	if desc != "" {
+		fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m \033[90m- %s\033[0m\n", idx, s.Name, truncateDesc(desc, defaultDescLimit))
+	} else {
+		fmt.Printf("\033[90m%3d.\033[0m \033[32m%s\033[0m\n", idx, s.Name)
+	}
+
+	latest := dashIfEmptyTerm(s.Labels["latest"])
+	editing := dashIfEmptyTerm(strOrEmptyTerm(s.EditingVersion))
+	reviewing := dashIfEmptyTerm(strOrEmptyTerm(s.ReviewingVersion))
+	statusLabel := "\033[32menabled\033[0m"
+	if !s.Enable {
+		statusLabel = "\033[31mdisabled\033[0m"
+	}
+	fmt.Printf("     \033[90mlatest=\033[0m%s  \033[90mediting=\033[0m%s  \033[90mreviewing=\033[0m%s  \033[90monline=\033[0m%d  %s\n",
+		latest, editing, reviewing, s.OnlineCnt, statusLabel)
+
+	var meta []string
+	if scope := strOrEmptyTerm(s.Scope); scope != "" {
+		meta = append(meta, "scope="+scope)
+	}
+	if biz := strOrEmptyTerm(s.BizTags); biz != "" {
+		meta = append(meta, "bizTags="+biz)
+	}
+	if s.UpdateTime > 0 {
+		meta = append(meta, "updated="+time.UnixMilli(s.UpdateTime).Format("2006-01-02 15:04:05"))
+	}
+	if s.DownloadCount != nil && *s.DownloadCount > 0 {
+		meta = append(meta, fmt.Sprintf("downloads=%d", *s.DownloadCount))
+	}
+	if len(meta) > 0 {
+		fmt.Printf("     \033[90m%s\033[0m\n", strings.Join(meta, "  "))
+	}
+}
+
+// strOrEmptyTerm dereferences a *string, returning "" if nil.
+func strOrEmptyTerm(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // getAgentSpec downloads one or more agent specs
@@ -1179,14 +1703,13 @@ func (t *Terminal) getAgentSpec(args []string) {
 	}
 }
 
-// publishAgentSpec publishes an agent spec (mirrors skill-publish).
-func (t *Terminal) publishAgentSpec(args []string) {
+// uploadAgentSpec uploads an agent spec draft (editing state)
+func (t *Terminal) uploadAgentSpec(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: agentspec-publish <agentSpecPath> or agentspec-publish --all <folder>")
+		fmt.Println("Usage: agentspec-upload <agentSpecPath> or agentspec-upload --all <folder>")
 		return
 	}
 
-	// Check for --all flag in any position
 	allFlagIndex := -1
 	folderPath := ""
 	for i, arg := range args {
@@ -1198,28 +1721,21 @@ func (t *Terminal) publishAgentSpec(args []string) {
 			break
 		}
 	}
-
-	// If --all found but no folder after it, check if folder is before --all
-	if allFlagIndex >= 0 && folderPath == "" {
-		if allFlagIndex > 0 {
-			folderPath = args[allFlagIndex-1]
-		}
+	if allFlagIndex >= 0 && folderPath == "" && allFlagIndex > 0 {
+		folderPath = args[allFlagIndex-1]
 	}
 
 	if allFlagIndex >= 0 {
 		if folderPath == "" {
 			fmt.Println("Error: folder path required for --all flag")
-			fmt.Println("Usage: agentspec-publish --all <folder> or agentspec-publish <folder> --all")
+			fmt.Println("Usage: agentspec-upload --all <folder> or agentspec-upload <folder> --all")
 			return
 		}
-		t.publishAllAgentSpecs(folderPath)
+		t.uploadAllAgentSpecs(folderPath)
 		return
 	}
 
-	// Single agent spec publish
 	specPath := args[0]
-
-	// Expand ~ to home directory
 	if strings.HasPrefix(specPath, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -1236,20 +1752,21 @@ func (t *Terminal) publishAgentSpec(args []string) {
 		specPath = homeDir
 	}
 
-	fmt.Printf("Publishing agent spec: %s...\n", specPath)
-
-	err := t.agentSpecService.UploadAgentSpec(specPath)
-	if err != nil {
+	fmt.Printf("Uploading agent spec: %s...\n", specPath)
+	if err := t.agentSpecService.UploadAgentSpec(specPath); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-
-	fmt.Printf("Agent spec published successfully!\n")
+	specName := filepath.Base(specPath)
+	if strings.HasSuffix(strings.ToLower(specName), ".zip") {
+		specName = strings.TrimSuffix(specName, filepath.Ext(specName))
+	}
+	fmt.Printf("Agent spec draft uploaded successfully!\n")
+	fmt.Printf("Tip: Use 'agentspec-review %s' to submit the draft for review.\n", specName)
 }
 
-// publishAllAgentSpecs publishes all agent specs in a directory
-func (t *Terminal) publishAllAgentSpecs(folderPath string) {
-	// Expand ~ to home directory
+// uploadAllAgentSpecs uploads all agent spec drafts in a directory.
+func (t *Terminal) uploadAllAgentSpecs(folderPath string) {
 	if strings.HasPrefix(folderPath, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -1266,7 +1783,6 @@ func (t *Terminal) publishAllAgentSpecs(folderPath string) {
 		folderPath = homeDir
 	}
 
-	// List subdirectories
 	entries, err := os.ReadDir(folderPath)
 	if err != nil {
 		fmt.Printf("Error reading directory: %v\n", err)
@@ -1278,8 +1794,6 @@ func (t *Terminal) publishAllAgentSpecs(folderPath string) {
 		if !entry.IsDir() {
 			continue
 		}
-
-		// Check if manifest.json exists
 		manifestPath := filepath.Join(folderPath, entry.Name(), "manifest.json")
 		if _, err := os.Stat(manifestPath); err == nil {
 			specDirs = append(specDirs, entry.Name())
@@ -1297,29 +1811,25 @@ func (t *Terminal) publishAllAgentSpecs(folderPath string) {
 	}
 	fmt.Println()
 
-	successCount := 0
-	failedCount := 0
-
+	successCount, failedCount := 0, 0
 	for i, specName := range specDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Publishing agent spec: %s\n", i+1, len(specDirs), specName)
+		fmt.Printf("[%d/%d] Uploading agent spec: %s\n", i+1, len(specDirs), specName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		specPath := filepath.Join(folderPath, specName)
-		err := t.agentSpecService.UploadAgentSpec(specPath)
-		if err != nil {
-			fmt.Printf("Publish failed: %v\n", err)
+		if err := t.agentSpecService.UploadAgentSpec(specPath); err != nil {
+			fmt.Printf("Upload failed: %v\n", err)
 			failedCount++
 		} else {
-			fmt.Printf("Publish successful!\n")
+			fmt.Printf("Upload successful!\n")
 			successCount++
 		}
 		fmt.Println()
 	}
 
-	// Summary
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Publish Complete")
+	fmt.Println("Batch Upload Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -1327,7 +1837,287 @@ func (t *Terminal) publishAllAgentSpecs(folderPath string) {
 	}
 	fmt.Printf("Total: %d\n", len(specDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use 'agentspec-list' to view all published agent specs")
+	fmt.Println("Tip: Use 'agentspec-review <agentSpecName>' to submit a draft for review.")
+}
+
+// describeAgentSpec fetches and prints one agent spec's detail including version list.
+func (t *Terminal) describeAgentSpec(args []string) {
+	if len(args) == 0 {
+		fmt.Println("\033[31mUsage:\033[0m agentspec-describe <agentSpecName>")
+		return
+	}
+	specName := args[0]
+
+	fmt.Print("\033[90mFetching agent spec detail...\033[0m\r")
+	detail, err := t.agentSpecService.DescribeAgentSpec(specName)
+	fmt.Print("\033[K")
+	if err != nil {
+		fmt.Printf("\033[31mError:\033[0m %v\n", err)
+		return
+	}
+
+	fmt.Printf("\n\033[1;36mAgentSpec:\033[0m \033[32m%s\033[0m\n", detail.Name)
+	fmt.Println("\033[36m═══════════════════════════════════════════════════════════════════════════════\033[0m")
+	if desc := strOrEmptyTerm(detail.Description); desc != "" {
+		fmt.Printf("  \033[90mdescription:\033[0m %s\n", desc)
+	}
+
+	statusLabel := "\033[32menabled\033[0m"
+	if !detail.Enable {
+		statusLabel = "\033[31mdisabled\033[0m"
+	}
+	fmt.Printf("  \033[90mlatest=\033[0m%s  \033[90mediting=\033[0m%s  \033[90mreviewing=\033[0m%s  \033[90monline=\033[0m%d  %s\n",
+		dashIfEmptyTerm(detail.Labels["latest"]),
+		dashIfEmptyTerm(strOrEmptyTerm(detail.EditingVersion)),
+		dashIfEmptyTerm(strOrEmptyTerm(detail.ReviewingVersion)),
+		detail.OnlineCnt,
+		statusLabel,
+	)
+
+	var meta []string
+	if scope := strOrEmptyTerm(detail.Scope); scope != "" {
+		meta = append(meta, "scope="+scope)
+	}
+	if biz := strOrEmptyTerm(detail.BizTags); biz != "" {
+		meta = append(meta, "bizTags="+biz)
+	}
+	if detail.UpdateTime > 0 {
+		meta = append(meta, "updated="+time.UnixMilli(detail.UpdateTime).Format("2006-01-02 15:04:05"))
+	}
+	if detail.DownloadCount != nil && *detail.DownloadCount > 0 {
+		meta = append(meta, fmt.Sprintf("downloads=%d", *detail.DownloadCount))
+	}
+	if len(meta) > 0 {
+		fmt.Printf("  \033[90m%s\033[0m\n", strings.Join(meta, "  "))
+	}
+
+	fmt.Println()
+	fmt.Println("\033[1;33mVersions:\033[0m")
+	if len(detail.Versions) == 0 {
+		fmt.Println("  \033[90m(none)\033[0m")
+		return
+	}
+
+	versions := make([]agentspec.AgentSpecVersionSummary, len(detail.Versions))
+	copy(versions, detail.Versions)
+	sort.SliceStable(versions, func(i, j int) bool {
+		ti := termAgentSpecVersionSortKey(versions[i])
+		tj := termAgentSpecVersionSortKey(versions[j])
+		if ti != tj {
+			return ti > tj
+		}
+		return versions[i].Version > versions[j].Version
+	})
+
+	fmt.Printf("  \033[90m%-12s  %-10s  %-12s  %-19s  %s\033[0m\n", "VERSION", "STATUS", "AUTHOR", "UPDATED", "DESCRIPTION")
+	for _, v := range versions {
+		updated := "-"
+		if v.UpdateTime != nil && *v.UpdateTime > 0 {
+			updated = time.UnixMilli(*v.UpdateTime).Format("2006-01-02 15:04:05")
+		}
+		desc := strings.ReplaceAll(v.Description, "\n", " ")
+		desc = truncateDesc(desc, 60)
+		fmt.Printf("  %-12s  %-10s  %-12s  %-19s  %s\n",
+			v.Version,
+			dashIfEmptyTerm(v.Status),
+			dashIfEmptyTerm(v.Author),
+			updated,
+			desc,
+		)
+	}
+}
+
+func termAgentSpecVersionSortKey(v agentspec.AgentSpecVersionSummary) int64 {
+	if v.UpdateTime != nil {
+		return *v.UpdateTime
+	}
+	if v.CreateTime != nil {
+		return *v.CreateTime
+	}
+	return 0
+}
+
+// submitAgentSpec submits an agent spec draft for review (editing -> reviewing).
+func (t *Terminal) submitAgentSpec(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: agentspec-review <agentSpecName> [--version <version>]")
+		return
+	}
+
+	specName := args[0]
+	version := ""
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		}
+	}
+
+	fmt.Printf("Submitting agent spec for review: %s...\n", specName)
+	if err := t.agentSpecService.SubmitAgentSpec(specName, version); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Agent spec submitted for review successfully!\n")
+	fmt.Printf("Tip: After the review passes, run 'agentspec-release %s --version <ver>' to publish it online.\n", specName)
+}
+
+// releaseAgentSpec publishes an approved agent spec version (reviewing -> online).
+func (t *Terminal) releaseAgentSpec(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: agentspec-release <agentSpecName> --version <version> [--update-latest=true|false]")
+		return
+	}
+
+	specName := args[0]
+	version := ""
+	updateLatest := true
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		} else if arg == "--update-latest=false" || arg == "--update-latest=False" {
+			updateLatest = false
+		} else if arg == "--update-latest=true" || arg == "--update-latest=True" {
+			updateLatest = true
+		} else if arg == "--update-latest" && i+1 < len(args) {
+			i++
+			updateLatest = args[i] != "false" && args[i] != "False" && args[i] != "0"
+		}
+	}
+
+	if version == "" {
+		fmt.Println("Error: --version is required for agentspec-release")
+		return
+	}
+
+	fmt.Printf("Releasing agent spec: %s@%s (updateLatest=%v)...\n", specName, version, updateLatest)
+	if err := t.agentSpecService.PublishAgentSpec(specName, version, updateLatest); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		maybePrintReleaseRetryHintTerm(err, "agentspec", specName)
+		return
+	}
+	fmt.Printf("Agent spec released successfully! %s@%s is now online.\n", specName, version)
+}
+
+// maybePrintReleaseRetryHintTerm mirrors cmd.maybePrintReleaseRetryHint for the
+// interactive terminal mode: when a *-release fails with HTTP 400 "parameter
+// validate error", the root cause is usually the async review pipeline not
+// having marked the version as 'reviewed' yet.
+func maybePrintReleaseRetryHintTerm(err error, kind, name string) {
+	if err == nil {
+		return
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "400") && !strings.Contains(msg, "parameter validate") {
+		return
+	}
+	fmt.Printf("\033[33mHint:\033[0m if you just ran '%s-review', the server-side review pipeline may still be running.\n", kind)
+	fmt.Printf("      Wait 2-3 seconds, check status with '%s-describe %s', and retry when STATUS=reviewed.\n", kind, name)
+}
+
+// publishAgentSpecLegacy runs upload + review as a backward-compatible shortcut for the
+// deprecated agentspec-publish command.
+func (t *Terminal) publishAgentSpecLegacy(args []string) {
+	fmt.Println("\033[33m[DEPRECATED] 'agentspec-publish' will be removed in a future release.\033[0m")
+	fmt.Println("\033[90m  It now runs 'agentspec-upload' + 'agentspec-review' for compatibility.\033[0m")
+	fmt.Println("\033[90m  Please migrate to: agentspec-upload -> agentspec-review -> agentspec-release.\033[0m")
+
+	if len(args) == 0 {
+		fmt.Println("Usage: agentspec-publish <agentSpecPath> or agentspec-publish --all <folder>")
+		return
+	}
+
+	hasAll := false
+	folderPath := ""
+	for i, a := range args {
+		if a == "--all" {
+			hasAll = true
+			if i+1 < len(args) {
+				folderPath = args[i+1]
+			} else if i > 0 {
+				folderPath = args[i-1]
+			}
+			break
+		}
+	}
+
+	if hasAll {
+		if folderPath == "" {
+			fmt.Println("Error: folder path required for --all flag")
+			return
+		}
+		t.uploadAllAgentSpecs(folderPath)
+		t.reviewAllAgentSpecs(folderPath)
+		return
+	}
+
+	specPath := args[0]
+	if strings.HasPrefix(specPath, "~/") {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			specPath = filepath.Join(homeDir, specPath[2:])
+		}
+	} else if specPath == "~" {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			specPath = homeDir
+		}
+	}
+
+	specName := filepath.Base(specPath)
+	if strings.HasSuffix(strings.ToLower(specName), ".zip") {
+		specName = strings.TrimSuffix(specName, filepath.Ext(specName))
+	}
+
+	fmt.Printf("[1/2] Uploading agent spec: %s...\n", specPath)
+	if err := t.agentSpecService.UploadAgentSpec(specPath); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Upload successful.\n")
+
+	fmt.Printf("[2/2] Submitting agent spec for review: %s...\n", specName)
+	if err := t.agentSpecService.SubmitAgentSpec(specName, ""); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Submitted for review successfully.\n")
+	fmt.Printf("Tip: After the review passes, run 'agentspec-release %s --version <ver>' to publish online.\n", specName)
+}
+
+// reviewAllAgentSpecs submits every agent spec directory (with manifest.json) under folderPath for review.
+func (t *Terminal) reviewAllAgentSpecs(folderPath string) {
+	if strings.HasPrefix(folderPath, "~/") {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			folderPath = filepath.Join(homeDir, folderPath[2:])
+		}
+	}
+	entries, err := os.ReadDir(folderPath)
+	if err != nil {
+		fmt.Printf("Error reading folder: %v\n", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(folderPath, entry.Name(), "manifest.json")); err != nil {
+			continue
+		}
+		specName := entry.Name()
+		fmt.Printf("Submitting agent spec for review: %s...\n", specName)
+		if err := t.agentSpecService.SubmitAgentSpec(specName, ""); err != nil {
+			fmt.Printf("  Failed: %v\n", err)
+			continue
+		}
+		fmt.Printf("  OK\n")
+	}
 }
 
 // truncateDesc truncates description to maxLen and appends ...... if needed

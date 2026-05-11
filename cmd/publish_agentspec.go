@@ -12,16 +12,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	agentSpecPublishAll bool
-)
+// agentSpecPublishAll is the legacy flag for agentspec-publish --all.
+var agentSpecPublishAll bool
 
+// publishAgentSpecCmd is DEPRECATED. It now performs agentspec-upload followed by
+// agentspec-review (submit for review) as a backward-compatible shortcut.
+//
+// Users should migrate to the new three-step flow:
+//
+//	agentspec-upload  -> agentspec-review  -> agentspec-release
 var publishAgentSpecCmd = &cobra.Command{
 	Use:   "agentspec-publish [agentSpecPath]",
-	Short: "Publish an agent spec to Nacos (upload as ZIP)",
+	Short: "[DEPRECATED] Upload then submit an agent spec draft for review (use agentspec-upload/agentspec-review/agentspec-release instead)",
 	Long:  help.AgentSpecPublish.FormatForCLI("nacos-cli"),
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		printAgentSpecPublishDeprecationWarning()
+
 		if len(args) == 0 {
 			fmt.Fprintf(os.Stderr, "Error: agent spec path required\n")
 			os.Exit(1)
@@ -32,15 +39,27 @@ var publishAgentSpecCmd = &cobra.Command{
 		agentSpecService := agentspec.NewAgentSpecService(nacosClient)
 
 		if agentSpecPublishAll {
-			publishAllAgentSpecs(specPath, agentSpecService)
+			publishAllAgentSpecsLegacy(specPath, agentSpecService)
 			return
 		}
-
-		publishSingleAgentSpec(specPath, agentSpecService)
+		publishSingleAgentSpecLegacy(specPath, agentSpecService)
 	},
 }
 
-func publishSingleAgentSpec(specPath string, agentSpecService *agentspec.AgentSpecService) {
+// printAgentSpecPublishDeprecationWarning prints a visible deprecation notice to stderr.
+func printAgentSpecPublishDeprecationWarning() {
+	fmt.Fprintln(os.Stderr, "------------------------------------------------------------")
+	fmt.Fprintln(os.Stderr, "[DEPRECATED] 'agentspec-publish' will be removed in a future release.")
+	fmt.Fprintln(os.Stderr, "  It now runs 'agentspec-upload' + 'agentspec-review' for compatibility.")
+	fmt.Fprintln(os.Stderr, "  Please migrate to the new flow:")
+	fmt.Fprintln(os.Stderr, "    1) agentspec-upload  <agentSpecPath>              # upload as editing draft")
+	fmt.Fprintln(os.Stderr, "    2) agentspec-review  <agentSpecName>              # submit for review")
+	fmt.Fprintln(os.Stderr, "    3) agentspec-release <agentSpecName> --version <ver>  # publish online")
+	fmt.Fprintln(os.Stderr, "------------------------------------------------------------")
+}
+
+// publishSingleAgentSpecLegacy runs upload + review for a single agent spec directory/zip.
+func publishSingleAgentSpecLegacy(specPath string, agentSpecService *agentspec.AgentSpecService) {
 	expanded, err := util.ExpandTilde(specPath)
 	checkError(err)
 	specPath = expanded
@@ -48,17 +67,25 @@ func publishSingleAgentSpec(specPath string, agentSpecService *agentspec.AgentSp
 	absPath, err := filepath.Abs(specPath)
 	checkError(err)
 
-	specName := filepath.Base(absPath)
-	fmt.Printf("Publishing agent spec: %s...\n", specName)
+	specName := deriveAgentSpecNameFromPath(absPath)
+	fmt.Printf("[1/2] Uploading agent spec: %s...\n", specName)
+	if err := agentSpecService.UploadAgentSpec(absPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: upload failed for '%s': %v\n", specName, err)
+		os.Exit(1)
+	}
+	fmt.Printf("Upload successful.\n")
 
-	err = agentSpecService.UploadAgentSpec(absPath)
-	checkError(err)
-
-	fmt.Printf("Agent spec published successfully!\n")
-	fmt.Printf("  Tip: Use the Nacos console to review and go online, or use 'agentspec-list' to verify.\n")
+	fmt.Printf("[2/2] Submitting agent spec for review: %s...\n", specName)
+	if err := agentSpecService.SubmitAgentSpec(specName, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: submit-for-review failed for '%s': %v\n", specName, err)
+		os.Exit(1)
+	}
+	fmt.Printf("Submitted for review successfully.\n")
+	fmt.Printf("  Tip: After the review passes, run 'agentspec-release %s --version <ver>' to publish online.\n", specName)
 }
 
-func publishAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSpecService) {
+// publishAllAgentSpecsLegacy runs upload + review for each agent spec directory under folderPath.
+func publishAllAgentSpecsLegacy(folderPath string, agentSpecService *agentspec.AgentSpecService) {
 	expanded, err := util.ExpandTilde(folderPath)
 	checkError(err)
 	folderPath = expanded
@@ -71,7 +98,6 @@ func publishAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSp
 		if !entry.IsDir() {
 			continue
 		}
-
 		manifestPath := filepath.Join(folderPath, entry.Name(), "manifest.json")
 		if _, err := os.Stat(manifestPath); err == nil {
 			specDirs = append(specDirs, entry.Name())
@@ -94,23 +120,29 @@ func publishAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSp
 
 	for i, specName := range specDirs {
 		fmt.Println(strings.Repeat("=", 80))
-		fmt.Printf("[%d/%d] Publishing agent spec: %s\n", i+1, len(specDirs), specName)
+		fmt.Printf("[%d/%d] upload+review: %s\n", i+1, len(specDirs), specName)
 		fmt.Println(strings.Repeat("=", 80))
 
 		specPath := filepath.Join(folderPath, specName)
-		err := agentSpecService.UploadAgentSpec(specPath)
-		if err != nil {
-			fmt.Printf("Publish failed: %v\n", err)
+		if err := agentSpecService.UploadAgentSpec(specPath); err != nil {
+			fmt.Printf("Upload failed: %v\n", err)
 			failedCount++
-		} else {
-			fmt.Printf("Publish successful!\n")
-			successCount++
+			fmt.Println()
+			continue
 		}
+		if err := agentSpecService.SubmitAgentSpec(specName, ""); err != nil {
+			fmt.Printf("Submit-for-review failed: %v\n", err)
+			failedCount++
+			fmt.Println()
+			continue
+		}
+		fmt.Printf("Upload + review submitted successfully!\n")
+		successCount++
 		fmt.Println()
 	}
 
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("Batch Publish Complete")
+	fmt.Println("Batch Publish (Deprecated) Complete")
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Success: %d\n", successCount)
 	if failedCount > 0 {
@@ -118,10 +150,10 @@ func publishAllAgentSpecs(folderPath string, agentSpecService *agentspec.AgentSp
 	}
 	fmt.Printf("Total: %d\n", len(specDirs))
 	fmt.Println()
-	fmt.Println("Tip: Use the Nacos console to review and go online, or use 'agentspec-list' to verify.")
+	fmt.Println("Tip: After each review passes, run 'agentspec-release <agentSpecName> --version <ver>' to publish online.")
 }
 
 func init() {
-	publishAgentSpecCmd.Flags().BoolVar(&agentSpecPublishAll, "all", false, "Publish all agent specs in the directory")
+	publishAgentSpecCmd.Flags().BoolVar(&agentSpecPublishAll, "all", false, "Publish all agent specs in the directory (deprecated)")
 	rootCmd.AddCommand(publishAgentSpecCmd)
 }

@@ -17,14 +17,15 @@ type CommandHelp struct {
 var (
 	SkillList = CommandHelp{
 		Command:     "skill-list",
-		Description: "List all skills from Nacos configuration center.",
+		Description: "List all skills with governance info (latest/editing/reviewing/onlineCnt/enable/scope/owner/updateTime).",
 		Parameters: []string{
 			"--name string   Filter by skill name (supports wildcard *)",
 			"--page int      Page number (default: 1)",
 			"--size int      Page size (default: 20)",
+			"--output string Output format: pretty | json (default: pretty)",
 		},
 		Examples: []string{
-			"# List all skills",
+			"# List all skills (human-readable, multi-line)",
 			"skill-list",
 			"",
 			"# Search by name",
@@ -32,6 +33,13 @@ var (
 			"",
 			"# With pagination",
 			"skill-list --page 2 --size 10",
+			"",
+			"# Machine-readable JSON (for scripts / jq)",
+			"skill-list --output json",
+			"",
+			"Note:",
+			"  - Every row shows latest/editing/reviewing version pointers and online count",
+			"  - For full version-level status (editing/reviewing/online/offline per version), use skill-describe",
 		},
 	}
 
@@ -62,23 +70,104 @@ var (
 		},
 	}
 
-	SkillPublish = CommandHelp{
-		Command:     "skill-publish",
-		Description: "Publish a skill to Nacos by uploading it as a ZIP file (creates a draft version).\nReview and go-online operations should be done via the Nacos console.",
+	SkillUpload = CommandHelp{
+		Command:     "skill-upload",
+		Description: "Upload a skill to Nacos as a ZIP file (creates an editing draft version).",
 		Parameters: []string{
-			"skillPath       Required. Path to the skill directory",
-			"--all           Publish all skills in the specified directory",
+			"skillPath       Required. Path to the skill directory (or .zip file)",
+			"--all           Upload all skills in the specified directory",
 		},
 		Examples: []string{
-			"# Publish a single skill",
-			"skill-publish ./my-skill",
+			"# Upload a single skill",
+			"skill-upload ./my-skill",
 			"",
-			"# Publish all skills in a directory",
-			"skill-publish --all ./skills-folder",
+			"# Upload all skills in a directory",
+			"skill-upload --all ./skills-folder",
 			"",
 			"Note:",
 			"  - Skill directory must contain SKILL.md",
-			"  - After publishing, use the Nacos console to review and go online",
+			"  - After upload, use skill-review to submit the draft for review",
+			"  - After review passes, use skill-release to publish the version online",
+		},
+	}
+
+	SkillReview = CommandHelp{
+		Command:     "skill-review",
+		Description: "Submit a skill draft version for review (moves editing -> reviewing).",
+		Parameters: []string{
+			"skillName       Required. Skill name to submit for review",
+			"--version       Optional. Specific draft version to submit",
+		},
+		Examples: []string{
+			"# Submit the current draft for review",
+			"skill-review my-skill",
+			"",
+			"# Submit a specific draft version",
+			"skill-review my-skill --version 1.0.0",
+			"",
+			"Note:",
+			"  - If --version is omitted, the server submits the current editingVersion",
+			"  - After the review passes, call skill-release to make it online",
+		},
+	}
+
+	SkillRelease = CommandHelp{
+		Command:     "skill-release",
+		Description: "Release (publish) an approved skill version to make it online.",
+		Parameters: []string{
+			"skillName            Required. Skill name to release",
+			"--version            Required. Approved (reviewing) version to release",
+			"--update-latest      Whether to update the 'latest' label (default: true)",
+		},
+		Examples: []string{
+			"# Release an approved version and mark it as latest",
+			"skill-release my-skill --version 1.0.0",
+			"",
+			"# Release without updating the latest label",
+			"skill-release my-skill --version 1.0.0 --update-latest=false",
+			"",
+			"Note:",
+			"  - The target version must be in 'reviewing' state (approved by pipeline)",
+			"  - Flow: skill-upload -> skill-review -> skill-release",
+		},
+	}
+
+	SkillDescribe = CommandHelp{
+		Command:     "skill-describe",
+		Description: "Show detailed info of a single skill, including governance metadata and the full version list with per-version status (editing/reviewing/online/offline).",
+		Parameters: []string{
+			"skillName       Required. Skill name to describe",
+			"--output string Output format: pretty | json (default: pretty)",
+		},
+		Examples: []string{
+			"# Show skill detail in human-readable form",
+			"skill-describe my-skill",
+			"",
+			"# Machine-readable JSON (for scripts / jq)",
+			"skill-describe my-skill --output json",
+			"",
+			"Note:",
+			"  - Use this to answer: which versions exist, which has been approved, which is online",
+			"  - The 'status' column reflects each version's lifecycle state",
+		},
+	}
+
+	SkillPublish = CommandHelp{
+		Command:     "skill-publish",
+		Description: "[DEPRECATED] Equivalent to running skill-upload followed by skill-review.\nPlease migrate to: skill-upload (-> upload draft), skill-review (-> submit for review), skill-release (-> publish online).",
+		Parameters: []string{
+			"skillPath       Required. Path to the skill directory",
+			"--all           Process all skills in the specified directory",
+		},
+		Examples: []string{
+			"# [DEPRECATED] Upload and submit a single skill for review",
+			"skill-publish ./my-skill",
+			"",
+			"# [DEPRECATED] Upload and submit all skills in a directory",
+			"skill-publish --all ./skills-folder",
+			"",
+			"Note:",
+			"  - This command is deprecated. Use skill-upload + skill-review + skill-release instead.",
 		},
 	}
 
@@ -151,14 +240,15 @@ var (
 
 	AgentSpecList = CommandHelp{
 		Command:     "agentspec-list",
-		Description: "List all agent specs from Nacos configuration center.",
+		Description: "List all agent specs with governance info (latest/editing/reviewing/onlineCnt/enable/scope/bizTags/updateTime).",
 		Parameters: []string{
-			"--name string     Filter by agent spec name",
-			"--page int        Page number (default: 1)",
-			"--size int        Page size (default: 20)",
+			"--name string   Filter by agent spec name (supports wildcard *)",
+			"--page int      Page number (default: 1)",
+			"--size int      Page size (default: 20)",
+			"--output string Output format: pretty | json (default: pretty)",
 		},
 		Examples: []string{
-			"# List all agent specs",
+			"# List all agent specs (human-readable, multi-line)",
 			"agentspec-list",
 			"",
 			"# Search by name",
@@ -166,6 +256,13 @@ var (
 			"",
 			"# With pagination",
 			"agentspec-list --page 2 --size 10",
+			"",
+			"# Machine-readable JSON (for scripts / jq)",
+			"agentspec-list --output json",
+			"",
+			"Note:",
+			"  - Every row shows latest/editing/reviewing version pointers and online count",
+			"  - For full version-level status (editing/reviewing/online/offline per version), use agentspec-describe",
 		},
 	}
 
@@ -196,26 +293,107 @@ var (
 		},
 	}
 
-	AgentSpecPublish = CommandHelp{
-		Command:     "agentspec-publish",
-		Description: "Publish an agent spec to Nacos by uploading it as a ZIP file (creates a draft version).\nReview and go-online operations should be done via the Nacos console.",
+	AgentSpecUpload = CommandHelp{
+		Command:     "agentspec-upload",
+		Description: "Upload an agent spec to Nacos as a ZIP file (creates an editing draft version).",
 		Parameters: []string{
-			"agentSpecPath   Required. Path to the agent spec directory or .zip file",
-			"--all           Publish all agent specs in the specified directory",
+			"agentSpecPath   Required. Path to the agent spec directory (or .zip file)",
+			"--all           Upload all agent specs in the specified directory",
 		},
 		Examples: []string{
-			"# Publish a single agent spec",
-			"agentspec-publish ./my-worker",
+			"# Upload a single agent spec",
+			"agentspec-upload ./my-worker",
 			"",
-			"# Publish a pre-built zip file",
-			"agentspec-publish ./my-worker.zip",
+			"# Upload a pre-built zip file",
+			"agentspec-upload ./my-worker.zip",
 			"",
-			"# Publish all agent specs in a directory",
-			"agentspec-publish --all ./specs-folder",
+			"# Upload all agent specs in a directory",
+			"agentspec-upload --all ./specs-folder",
 			"",
 			"Note:",
 			"  - Agent spec directory must contain manifest.json",
-			"  - After publishing, use the Nacos console to review and go online",
+			"  - After upload, use agentspec-review to submit the draft for review",
+			"  - After review passes, use agentspec-release to publish the version online",
+		},
+	}
+
+	AgentSpecReview = CommandHelp{
+		Command:     "agentspec-review",
+		Description: "Submit an agent spec draft version for review (moves editing -> reviewing).",
+		Parameters: []string{
+			"agentSpecName   Required. Agent spec name to submit for review",
+			"--version       Optional. Specific draft version to submit",
+		},
+		Examples: []string{
+			"# Submit the current draft for review",
+			"agentspec-review my-worker",
+			"",
+			"# Submit a specific draft version",
+			"agentspec-review my-worker --version 1.0.0",
+			"",
+			"Note:",
+			"  - If --version is omitted, the server submits the current editingVersion",
+			"  - After the review passes, call agentspec-release to make it online",
+		},
+	}
+
+	AgentSpecRelease = CommandHelp{
+		Command:     "agentspec-release",
+		Description: "Release (publish) an approved agent spec version to make it online.",
+		Parameters: []string{
+			"agentSpecName        Required. Agent spec name to release",
+			"--version            Required. Approved (reviewing) version to release",
+			"--update-latest      Whether to update the 'latest' label (default: true)",
+		},
+		Examples: []string{
+			"# Release an approved version and mark it as latest",
+			"agentspec-release my-worker --version 1.0.0",
+			"",
+			"# Release without updating the latest label",
+			"agentspec-release my-worker --version 1.0.0 --update-latest=false",
+			"",
+			"Note:",
+			"  - The target version must be in 'reviewing' state (approved by pipeline)",
+			"  - Flow: agentspec-upload -> agentspec-review -> agentspec-release",
+		},
+	}
+
+	AgentSpecDescribe = CommandHelp{
+		Command:     "agentspec-describe",
+		Description: "Show detailed info of a single agent spec, including governance metadata and the full version list with per-version status (editing/reviewing/online/offline).",
+		Parameters: []string{
+			"agentSpecName   Required. Agent spec name to describe",
+			"--output string Output format: pretty | json (default: pretty)",
+		},
+		Examples: []string{
+			"# Show agent spec detail in human-readable form",
+			"agentspec-describe my-worker",
+			"",
+			"# Machine-readable JSON (for scripts / jq)",
+			"agentspec-describe my-worker --output json",
+			"",
+			"Note:",
+			"  - Use this to answer: which versions exist, which has been approved, which is online",
+			"  - The 'status' column reflects each version's lifecycle state",
+		},
+	}
+
+	AgentSpecPublish = CommandHelp{
+		Command:     "agentspec-publish",
+		Description: "[DEPRECATED] Equivalent to running agentspec-upload followed by agentspec-review.\nPlease migrate to: agentspec-upload (-> upload draft), agentspec-review (-> submit for review), agentspec-release (-> publish online).",
+		Parameters: []string{
+			"agentSpecPath   Required. Path to the agent spec directory",
+			"--all           Process all agent specs in the specified directory",
+		},
+		Examples: []string{
+			"# [DEPRECATED] Upload and submit a single agent spec for review",
+			"agentspec-publish ./my-worker",
+			"",
+			"# [DEPRECATED] Upload and submit all agent specs in a directory",
+			"agentspec-publish --all ./specs-folder",
+			"",
+			"Note:",
+			"  - This command is deprecated. Use agentspec-upload + agentspec-review + agentspec-release instead.",
 		},
 	}
 )

@@ -46,6 +46,24 @@ type AgentSpecListResponse struct {
 	PageItems      []AgentSpecListItem `json:"pageItems"`
 }
 
+// AgentSpecVersionSummary mirrors com.alibaba.nacos.api.ai.model.agentspec.AgentSpecMeta.AgentSpecVersionSummary.
+type AgentSpecVersionSummary struct {
+	Version             string `json:"version"`
+	Status              string `json:"status"`
+	Author              string `json:"author,omitempty"`
+	Description         string `json:"description,omitempty"`
+	CreateTime          *int64 `json:"createTime,omitempty"`
+	UpdateTime          *int64 `json:"updateTime,omitempty"`
+	PublishPipelineInfo string `json:"publishPipelineInfo,omitempty"`
+	DownloadCount       *int64 `json:"downloadCount,omitempty"`
+}
+
+// AgentSpecDetail mirrors the admin AgentSpecMeta payload (AgentSpecSummary + versions).
+type AgentSpecDetail struct {
+	AgentSpecListItem
+	Versions []AgentSpecVersionSummary `json:"versions,omitempty"`
+}
+
 // AgentSpec represents a complete agentspec
 type AgentSpec struct {
 	NamespaceId string                        `json:"namespaceId"`
@@ -363,6 +381,166 @@ func (s *AgentSpecService) UploadAgentSpec(agentSpecPath string) error {
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
 		return client.ParseHTTPError(resp.StatusCode, respBody, "upload agentspec")
+	}
+
+	return nil
+}
+
+// DescribeAgentSpec fetches the admin AgentSpecMeta detail (governance + versions)
+// via GET /v3/admin/ai/agentspecs?agentSpecName=X&namespaceId=Y.
+func (s *AgentSpecService) DescribeAgentSpec(agentSpecName string) (*AgentSpecDetail, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(agentSpecName) == "" {
+		return nil, fmt.Errorf("agentSpecName is required")
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("agentSpecName", agentSpecName)
+
+	describeURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs?%s",
+		s.client.ServerAddr, params.Encode())
+
+	req, err := s.client.NewAuthedRequest("GET", describeURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("describe agentspec failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, client.ParseHTTPError(resp.StatusCode, respBody, "describe agentspec")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return nil, fmt.Errorf("parse response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return nil, fmt.Errorf("describe agentspec failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	var detail AgentSpecDetail
+	if err := json.Unmarshal(v3Resp.Data, &detail); err != nil {
+		return nil, fmt.Errorf("parse agentspec detail failed: %w", err)
+	}
+	return &detail, nil
+}
+
+// SubmitAgentSpec submits a draft agentspec version for review.
+func (s *AgentSpecService) SubmitAgentSpec(agentSpecName, version string) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(agentSpecName) == "" {
+		return fmt.Errorf("agentSpecName is required")
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("agentSpecName", agentSpecName)
+	if version != "" {
+		params.Set("version", version)
+	}
+
+	submitURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs/submit?%s",
+		s.client.ServerAddr, params.Encode())
+	req, err := s.client.NewAuthedRequest("POST", submitURL, nil)
+	if err != nil {
+		return err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("submit failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read submit response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return client.ParseHTTPError(resp.StatusCode, respBody, "submit agentspec")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return fmt.Errorf("parse submit response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return fmt.Errorf("submit agentspec failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+	}
+
+	return nil
+}
+
+// PublishAgentSpec publishes an approved (reviewing) agentspec version to make it online.
+// By default, updates the `latest` route label to the published version.
+func (s *AgentSpecService) PublishAgentSpec(agentSpecName, version string, updateLatestLabel bool) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(agentSpecName) == "" {
+		return fmt.Errorf("agentSpecName is required")
+	}
+	if strings.TrimSpace(version) == "" {
+		return fmt.Errorf("version is required")
+	}
+
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("agentSpecName", agentSpecName)
+	params.Set("version", version)
+	if updateLatestLabel {
+		params.Set("updateLatestLabel", "true")
+	} else {
+		params.Set("updateLatestLabel", "false")
+	}
+
+	publishURL := fmt.Sprintf("http://%s/nacos/v3/admin/ai/agentspecs/publish?%s",
+		s.client.ServerAddr, params.Encode())
+	req, err := s.client.NewAuthedRequest("POST", publishURL, nil)
+	if err != nil {
+		return err
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("publish failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read publish response failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return client.ParseHTTPError(resp.StatusCode, respBody, "publish agentspec")
+	}
+
+	var v3Resp V3Response
+	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
+		return fmt.Errorf("parse publish response failed: %w", err)
+	}
+	if v3Resp.Code != 0 {
+		return fmt.Errorf("publish agentspec failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
 	}
 
 	return nil

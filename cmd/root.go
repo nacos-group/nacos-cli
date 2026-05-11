@@ -212,6 +212,10 @@ Examples:
 // Called from main.go with values injected via ldflags.
 func SetVersionInfo(version, commit, date string) {
 	rootCmd.Version = fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date)
+	rootCmd.InitDefaultVersionFlag()
+	if flag := rootCmd.Flags().Lookup("version"); flag != nil {
+		flag.Shorthand = "v"
+	}
 }
 
 // Execute runs the root command

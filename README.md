@@ -428,14 +428,17 @@ nacos> quit           # Exit terminal
 Use `profile edit` to create or update a profile configuration:
 
 ```bash
-# Create or update the default profile
+# Create or update the current profile
 nacos-cli profile edit
 
 # Create or update a named profile
 nacos-cli profile edit dev
 
-# Use the profile
+# Use a profile once
 nacos-cli --profile dev skill-list
+
+# Switch the default profile used when --profile is omitted
+nacos-cli profile switch dev
 ```
 
 Profile files are stored under `~/.nacos-cli/<profile>.conf`. They are YAML
@@ -461,13 +464,35 @@ permissions. Existing plaintext config files remain readable for backward
 compatibility; the next profile load or `profile edit` rewrites sensitive fields
 in encrypted form.
 
+Profile management commands:
+
+```bash
+# List profiles
+nacos-cli profile list
+nacos-cli profile list --output json
+
+# Show or read profile values
+nacos-cli profile show dev
+nacos-cli profile get dev server
+nacos-cli profile get auth-type
+
+# Non-interactively create or update profile values
+nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=none
+nacos-cli profile set dev auth-type=nacos username=nacos password=nacos
+nacos-cli profile set dev server=127.0.0.1:8848 namespace=public
+
+# Delete a profile
+nacos-cli profile delete dev
+```
+
 ### Configuration Priority
 
 Configuration values are applied in the following priority order:
 1. **Command line arguments** (highest priority)
-2. **Configuration file**
-3. **Environment variables**
-4. **Default values** (lowest priority)
+2. **Explicit `--profile` or `--config` file**
+3. **Current profile selected by `profile switch`**
+4. **Environment variables**
+5. **Default values** (lowest priority)
 
 Supported environment variables:
 

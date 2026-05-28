@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -236,5 +237,117 @@ func TestConfigWithSchemeField(t *testing.T) {
 	}
 	if loaded.GetServerAddr() != "nacos.example.com:443" {
 		t.Errorf("GetServerAddr() = %q, want %q", loaded.GetServerAddr(), "nacos.example.com:443")
+	}
+}
+
+func TestCurrentProfileSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	current, err := GetCurrentProfile()
+	if err != nil {
+		t.Fatalf("get default current profile: %v", err)
+	}
+	if current != DefaultProfile {
+		t.Fatalf("current profile = %q, want %q", current, DefaultProfile)
+	}
+
+	if err := SetCurrentProfile("dev"); err != nil {
+		t.Fatalf("set current profile: %v", err)
+	}
+	current, err = GetCurrentProfile()
+	if err != nil {
+		t.Fatalf("get current profile: %v", err)
+	}
+	if current != "dev" {
+		t.Fatalf("current profile = %q, want dev", current)
+	}
+
+	if err := ClearCurrentProfile(); err != nil {
+		t.Fatalf("clear current profile: %v", err)
+	}
+	current, err = GetCurrentProfile()
+	if err != nil {
+		t.Fatalf("get cleared current profile: %v", err)
+	}
+	if current != DefaultProfile {
+		t.Fatalf("current profile after clear = %q, want %q", current, DefaultProfile)
+	}
+}
+
+func TestListAndDeleteProfiles(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	for _, profile := range []string{"prod", "default", "dev"} {
+		configPath, err := GetProfileConfigPath(profile)
+		if err != nil {
+			t.Fatalf("get profile path: %v", err)
+		}
+		cfg := &Config{Host: "127.0.0.1", Port: 8848, AuthType: "none"}
+		if err := cfg.SaveConfig(configPath); err != nil {
+			t.Fatalf("save profile %s: %v", profile, err)
+		}
+	}
+
+	profiles, err := ListProfiles()
+	if err != nil {
+		t.Fatalf("list profiles: %v", err)
+	}
+	want := []string{"default", "dev", "prod"}
+	if !reflect.DeepEqual(profiles, want) {
+		t.Fatalf("profiles = %#v, want %#v", profiles, want)
+	}
+
+	if err := DeleteProfile("dev"); err != nil {
+		t.Fatalf("delete profile: %v", err)
+	}
+	exists, err := ProfileExists("dev")
+	if err != nil {
+		t.Fatalf("profile exists: %v", err)
+	}
+	if exists {
+		t.Fatalf("profile dev still exists")
+	}
+}
+
+func TestConfigSetValueAndGetValue(t *testing.T) {
+	var cfg Config
+
+	for _, pair := range []struct {
+		key   string
+		value string
+	}{
+		{"server", "127.0.0.1:8848"},
+		{"auth-type", "sts-url"},
+		{"access-key", "ak"},
+		{"secret-key", "sk"},
+		{"security-token", "token"},
+		{"namespace", "test-ns"},
+	} {
+		if err := cfg.SetValue(pair.key, pair.value); err != nil {
+			t.Fatalf("set %s: %v", pair.key, err)
+		}
+	}
+
+	if cfg.Host != "127.0.0.1" || cfg.Port != 8848 {
+		t.Fatalf("server split mismatch: %+v", cfg)
+	}
+	if cfg.AuthType != "sts-hiclaw" {
+		t.Fatalf("auth type = %q, want sts-hiclaw", cfg.AuthType)
+	}
+
+	value, sensitive, err := cfg.GetValue("access-key")
+	if err != nil {
+		t.Fatalf("get access-key: %v", err)
+	}
+	if value != "ak" || !sensitive {
+		t.Fatalf("access-key value=%q sensitive=%v", value, sensitive)
+	}
+
+	value, sensitive, err = cfg.GetValue("server")
+	if err != nil {
+		t.Fatalf("get server: %v", err)
+	}
+	if value != "127.0.0.1:8848" || sensitive {
+		t.Fatalf("server value=%q sensitive=%v", value, sensitive)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nacos-group/nacos-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -153,6 +154,65 @@ func TestSchemePriority_ExplicitFlagOverridesHostPrefix(t *testing.T) {
 	// --scheme flag wins over --host https:// prefix
 	if scheme != "http" {
 		t.Fatalf("scheme = %q, want %q (--scheme flag should override host prefix)", scheme, "http")
+	}
+}
+
+func TestPersistentPreRunUsesCurrentProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+
+	configPath, err := config.GetProfileConfigPath("dev")
+	if err != nil {
+		t.Fatalf("get profile config path: %v", err)
+	}
+	cfg := &config.Config{Host: "10.0.0.2", Port: 8848, AuthType: "none", Namespace: "dev-ns"}
+	if err := cfg.SaveConfig(configPath); err != nil {
+		t.Fatalf("save profile: %v", err)
+	}
+	if err := config.SetCurrentProfile("dev"); err != nil {
+		t.Fatalf("set current profile: %v", err)
+	}
+
+	rootCmd.PersistentPreRun(&cobra.Command{Use: "skill-list"}, nil)
+
+	if serverAddr != "10.0.0.2:8848" {
+		t.Fatalf("serverAddr = %q, want %q", serverAddr, "10.0.0.2:8848")
+	}
+	if namespace != "dev-ns" {
+		t.Fatalf("namespace = %q, want dev-ns", namespace)
+	}
+}
+
+func TestPersistentPreRunExplicitProfileOverridesCurrentProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+
+	devPath, err := config.GetProfileConfigPath("dev")
+	if err != nil {
+		t.Fatalf("get dev profile path: %v", err)
+	}
+	prodPath, err := config.GetProfileConfigPath("prod")
+	if err != nil {
+		t.Fatalf("get prod profile path: %v", err)
+	}
+	if err := (&config.Config{Host: "10.0.0.2", Port: 8848, AuthType: "none", Namespace: "dev-ns"}).SaveConfig(devPath); err != nil {
+		t.Fatalf("save dev profile: %v", err)
+	}
+	if err := (&config.Config{Host: "10.0.0.3", Port: 8849, AuthType: "none", Namespace: "prod-ns"}).SaveConfig(prodPath); err != nil {
+		t.Fatalf("save prod profile: %v", err)
+	}
+	if err := config.SetCurrentProfile("dev"); err != nil {
+		t.Fatalf("set current profile: %v", err)
+	}
+	profileName = "prod"
+
+	rootCmd.PersistentPreRun(&cobra.Command{Use: "skill-list"}, nil)
+
+	if serverAddr != "10.0.0.3:8849" {
+		t.Fatalf("serverAddr = %q, want %q", serverAddr, "10.0.0.3:8849")
+	}
+	if namespace != "prod-ns" {
+		t.Fatalf("namespace = %q, want prod-ns", namespace)
 	}
 }
 

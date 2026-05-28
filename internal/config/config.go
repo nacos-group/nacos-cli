@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ const (
 	DefaultConfigDir = ".nacos-cli"
 	DefaultProfile   = "default"
 	ConfigFileSuffix = ".conf"
+	SettingsFileName = "settings.yaml"
 )
 
 // Config represents the Nacos CLI configuration
@@ -30,6 +32,11 @@ type Config struct {
 	SecretKey     string `yaml:"secretKey"`     // Aliyun SK (AuthType=aliyun)
 	SecurityToken string `yaml:"securityToken"` // STS SecurityToken (legacy)
 	Namespace     string `yaml:"namespace"`
+}
+
+// Settings stores CLI-wide profile state.
+type Settings struct {
+	CurrentProfile string `yaml:"currentProfile"`
 }
 
 // LoadConfig loads configuration from a file
@@ -76,6 +83,14 @@ func LoadConfig(configPath string) (*Config, error) {
 	return &config, nil
 }
 
+// NormalizeProfileName returns the default profile when name is empty.
+func NormalizeProfileName(profile string) string {
+	if profile == "" {
+		return DefaultProfile
+	}
+	return profile
+}
+
 // GetServerAddr returns the server address in format "host:port"
 func (c *Config) GetServerAddr() string {
 	if c.Host == "" {
@@ -113,14 +128,21 @@ func GetConfigDir() (string, error) {
 // GetProfileConfigPath returns the config file path for a given profile
 // e.g., profile="dev" -> ~/.nacos-cli/dev.conf
 func GetProfileConfigPath(profile string) (string, error) {
-	if profile == "" {
-		profile = DefaultProfile
-	}
+	profile = NormalizeProfileName(profile)
 	configDir, err := GetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(configDir, profile+ConfigFileSuffix), nil
+}
+
+// GetSettingsPath returns the CLI settings file path.
+func GetSettingsPath() (string, error) {
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, SettingsFileName), nil
 }
 
 // EnsureConfigDir ensures the config directory exists
@@ -133,6 +155,135 @@ func EnsureConfigDir() error {
 		return err
 	}
 	return os.Chmod(configDir, 0700)
+}
+
+// LoadSettings loads CLI settings. Missing settings are treated as defaults.
+func LoadSettings() (*Settings, error) {
+	settingsPath, err := GetSettingsPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(settingsPath)
+	if os.IsNotExist(err) {
+		return &Settings{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read settings file: %w", err)
+	}
+	var settings Settings
+	if err := yaml.Unmarshal(data, &settings); err != nil {
+		return nil, fmt.Errorf("failed to parse settings file: %w", err)
+	}
+	settings.CurrentProfile = NormalizeProfileName(settings.CurrentProfile)
+	return &settings, nil
+}
+
+// SaveSettings saves CLI settings to disk.
+func SaveSettings(settings *Settings) error {
+	if err := EnsureConfigDir(); err != nil {
+		return err
+	}
+	settingsPath, err := GetSettingsPath()
+	if err != nil {
+		return err
+	}
+	settingsToSave := *settings
+	settingsToSave.CurrentProfile = NormalizeProfileName(settingsToSave.CurrentProfile)
+	data, err := yaml.Marshal(&settingsToSave)
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+	if err := os.WriteFile(settingsPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write settings file: %w", err)
+	}
+	return nil
+}
+
+// GetCurrentProfile returns the current profile, falling back to default.
+func GetCurrentProfile() (string, error) {
+	settings, err := LoadSettings()
+	if err != nil {
+		return "", err
+	}
+	return NormalizeProfileName(settings.CurrentProfile), nil
+}
+
+// SetCurrentProfile updates the current profile setting.
+func SetCurrentProfile(profile string) error {
+	return SaveSettings(&Settings{CurrentProfile: NormalizeProfileName(profile)})
+}
+
+// ClearCurrentProfile removes the settings file if it exists.
+func ClearCurrentProfile() error {
+	settingsPath, err := GetSettingsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(settingsPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove settings file: %w", err)
+	}
+	return nil
+}
+
+// ListProfiles returns profile names discovered under the config directory.
+func ListProfiles() ([]string, error) {
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(configDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config directory: %w", err)
+	}
+	profiles := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ConfigFileSuffix) {
+			continue
+		}
+		profile := strings.TrimSuffix(name, ConfigFileSuffix)
+		if profile != "" {
+			profiles = append(profiles, profile)
+		}
+	}
+	sort.Strings(profiles)
+	return profiles, nil
+}
+
+// ProfileExists reports whether a profile config file exists.
+func ProfileExists(profile string) (bool, error) {
+	configPath, err := GetProfileConfigPath(profile)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, err
+	}
+}
+
+// DeleteProfile removes a profile config file.
+func DeleteProfile(profile string) error {
+	configPath, err := GetProfileConfigPath(profile)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(configPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("profile %q does not exist", NormalizeProfileName(profile))
+		}
+		return fmt.Errorf("failed to delete profile %q: %w", NormalizeProfileName(profile), err)
+	}
+	return nil
 }
 
 // IsComplete checks if the configuration has all required fields for authentication
@@ -238,6 +389,128 @@ func (c *Config) SaveConfig(configPath string) error {
 	}
 
 	return nil
+}
+
+// SetValue updates one configuration field by CLI key name.
+func (c *Config) SetValue(key, value string) error {
+	switch normalizeConfigKey(key) {
+	case "host":
+		c.Host = value
+	case "port":
+		if value == "" {
+			c.Port = 0
+			return nil
+		}
+		port, err := strconv.Atoi(value)
+		if err != nil || port < 0 {
+			return fmt.Errorf("invalid port value %q", value)
+		}
+		c.Port = port
+	case "server":
+		return c.SetServerAddr(value)
+	case "authtype":
+		authType, err := NormalizeAuthType(value)
+		if err != nil {
+			return err
+		}
+		c.AuthType = authType
+	case "username":
+		c.Username = value
+	case "password":
+		c.Password = value
+	case "accesskey":
+		c.AccessKey = value
+	case "secretkey":
+		c.SecretKey = value
+	case "securitytoken":
+		c.SecurityToken = value
+	case "namespace":
+		c.Namespace = value
+	default:
+		return fmt.Errorf("unknown profile key %q", key)
+	}
+	return nil
+}
+
+// GetValue returns one configuration field by CLI key name.
+func (c *Config) GetValue(key string) (string, bool, error) {
+	switch normalizeConfigKey(key) {
+	case "host":
+		return c.Host, false, nil
+	case "port":
+		if c.Port == 0 {
+			return "", false, nil
+		}
+		return strconv.Itoa(c.Port), false, nil
+	case "server":
+		return c.GetServerAddr(), false, nil
+	case "authtype":
+		return c.AuthType, false, nil
+	case "username":
+		return c.Username, true, nil
+	case "password":
+		return c.Password, true, nil
+	case "accesskey":
+		return c.AccessKey, true, nil
+	case "secretkey":
+		return c.SecretKey, true, nil
+	case "securitytoken":
+		return c.SecurityToken, true, nil
+	case "namespace":
+		return c.Namespace, false, nil
+	default:
+		return "", false, fmt.Errorf("unknown profile key %q", key)
+	}
+}
+
+// SetServerAddr updates Host and Port from a host[:port] value.
+func (c *Config) SetServerAddr(server string) error {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		c.Host = ""
+		c.Port = 0
+		return nil
+	}
+	hostValue := server
+	portValue := 0
+	if strings.Count(server, ":") == 1 {
+		parts := strings.SplitN(server, ":", 2)
+		hostValue = parts[0]
+		if parts[1] != "" {
+			parsedPort, err := strconv.Atoi(parts[1])
+			if err != nil || parsedPort < 0 {
+				return fmt.Errorf("invalid server port value %q", parts[1])
+			}
+			portValue = parsedPort
+		}
+	}
+	c.Host = hostValue
+	c.Port = portValue
+	return nil
+}
+
+// NormalizeAuthType validates and normalizes an auth type value.
+func NormalizeAuthType(authType string) (string, error) {
+	authType = strings.TrimSpace(strings.ToLower(authType))
+	if authType == "" {
+		return "", nil
+	}
+	if authType == "sts-url" {
+		return "sts-hiclaw", nil
+	}
+	switch authType {
+	case "none", "nacos", "aliyun", "sts-hiclaw":
+		return authType, nil
+	default:
+		return "", fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-hiclaw')", authType)
+	}
+}
+
+func normalizeConfigKey(key string) string {
+	key = strings.TrimSpace(strings.ToLower(key))
+	key = strings.ReplaceAll(key, "-", "")
+	key = strings.ReplaceAll(key, "_", "")
+	return key
 }
 
 // EncryptSensitiveFields encrypts credential fields before writing them to disk.

@@ -46,17 +46,13 @@ Examples:
   nacos-cli profile show    # Show default config
   nacos-cli profile show dev   # Show dev config`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Skip config loading for help, completion, and profile subcommands
-		skipCommands := map[string]bool{
-			"help": true, "completion": true,
-			"profile": true, "edit": true, "show": true,
-		}
-		if skipCommands[cmd.Name()] {
+		// Skip config loading for help, completion, and profile subcommands.
+		if cmd.Name() == "help" || cmd.Name() == "completion" || strings.HasPrefix(cmd.CommandPath(), "nacos-cli profile") {
 			return
 		}
 
 		// Determine config loading strategy
-		// Priority: --config > profile config > env vars > default
+		// Priority: --config > explicit --profile > current profile > env vars > default
 		var fileConfig *config.Config
 		var err error
 
@@ -78,6 +74,10 @@ Examples:
 			envName := config.DefaultProfile
 			if profileName != "" {
 				envName = profileName
+			} else if currentProfile, profileErr := config.GetCurrentProfile(); profileErr == nil {
+				envName = currentProfile
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load current profile setting: %v\n", profileErr)
 			}
 			if hasEnvConfig {
 				configPath, pathErr := config.GetProfileConfigPath(envName)

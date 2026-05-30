@@ -583,25 +583,25 @@ func (t *Terminal) listSkills(args []string) {
 		} else if strings.HasPrefix(arg, "--page=") {
 			value := strings.TrimPrefix(arg, "--page=")
 			if value != "" {
-				fmt.Sscanf(value, "%d", &page)
+				_, _ = fmt.Sscanf(value, "%d", &page)
 			}
 		} else if arg == "--page" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &page)
+			_, _ = fmt.Sscanf(args[i], "%d", &page)
 		} else if arg == "--page=" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &page)
+			_, _ = fmt.Sscanf(args[i], "%d", &page)
 		} else if strings.HasPrefix(arg, "--size=") {
 			value := strings.TrimPrefix(arg, "--size=")
 			if value != "" {
-				fmt.Sscanf(value, "%d", &size)
+				_, _ = fmt.Sscanf(value, "%d", &size)
 			}
 		} else if arg == "--size" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &size)
+			_, _ = fmt.Sscanf(args[i], "%d", &size)
 		} else if arg == "--size=" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &size)
+			_, _ = fmt.Sscanf(args[i], "%d", &size)
 		}
 	}
 
@@ -1305,25 +1305,25 @@ func (t *Terminal) listConfigs(args []string) {
 		} else if strings.HasPrefix(arg, "--page=") {
 			value := strings.TrimPrefix(arg, "--page=")
 			if value != "" {
-				fmt.Sscanf(value, "%d", &page)
+				_, _ = fmt.Sscanf(value, "%d", &page)
 			}
 		} else if arg == "--page" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &page)
+			_, _ = fmt.Sscanf(args[i], "%d", &page)
 		} else if arg == "--page=" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &page)
+			_, _ = fmt.Sscanf(args[i], "%d", &page)
 		} else if strings.HasPrefix(arg, "--size=") {
 			value := strings.TrimPrefix(arg, "--size=")
 			if value != "" {
-				fmt.Sscanf(value, "%d", &size)
+				_, _ = fmt.Sscanf(value, "%d", &size)
 			}
 		} else if arg == "--size" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &size)
+			_, _ = fmt.Sscanf(args[i], "%d", &size)
 		} else if arg == "--size=" && i+1 < len(args) {
 			i++
-			fmt.Sscanf(args[i], "%d", &size)
+			_, _ = fmt.Sscanf(args[i], "%d", &size)
 		}
 	}
 
@@ -1579,19 +1579,19 @@ func (t *Terminal) listAgentSpecs(args []string) {
 		case strings.HasPrefix(arg, "--page="):
 			v := strings.TrimPrefix(arg, "--page=")
 			if v != "" {
-				fmt.Sscanf(v, "%d", &page)
+				_, _ = fmt.Sscanf(v, "%d", &page)
 			}
 		case arg == "--page" && i+1 < len(args):
 			i++
-			fmt.Sscanf(args[i], "%d", &page)
+			_, _ = fmt.Sscanf(args[i], "%d", &page)
 		case strings.HasPrefix(arg, "--size="):
 			v := strings.TrimPrefix(arg, "--size=")
 			if v != "" {
-				fmt.Sscanf(v, "%d", &size)
+				_, _ = fmt.Sscanf(v, "%d", &size)
 			}
 		case arg == "--size" && i+1 < len(args):
 			i++
-			fmt.Sscanf(args[i], "%d", &size)
+			_, _ = fmt.Sscanf(args[i], "%d", &size)
 		case strings.HasPrefix(arg, "--output="):
 			output = strings.TrimPrefix(arg, "--output=")
 		case arg == "--output" && i+1 < len(args):

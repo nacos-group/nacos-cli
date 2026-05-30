@@ -1526,11 +1526,6 @@ func (t *Terminal) showConfigSetHelp() {
 	help.ConfigSet.FormatForTerminal()
 }
 
-func (t *Terminal) showSkillSyncHelp() {
-	fmt.Println("\033[33mskill-sync has been removed.\033[0m")
-	fmt.Println("\033[90mUse 'skill-get' to download skills.\033[0m")
-}
-
 // AgentSpec command help methods
 
 func (t *Terminal) showAgentSpecListHelp() {

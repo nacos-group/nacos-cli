@@ -274,7 +274,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose/debug output")
 
 	// Mark legacy server flag as deprecated but still functional
-	rootCmd.PersistentFlags().MarkDeprecated("server", "use --host and --port instead")
+	_ = rootCmd.PersistentFlags().MarkDeprecated("server", "use --host and --port instead")
 }
 
 func checkError(err error) {

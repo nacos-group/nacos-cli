@@ -6,11 +6,11 @@ import (
 
 func TestParseCommandArgs(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		expectedCmd   string
-		expectedArgs  []string
-		description   string
+		name         string
+		input        string
+		expectedCmd  string
+		expectedArgs []string
+		description  string
 	}{
 		{
 			name:         "simple command without flags",
@@ -101,20 +101,20 @@ func TestParseCommandArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, args := parseCommandArgs(tt.input)
-			
+
 			if cmd != tt.expectedCmd {
-				t.Errorf("parseCommandArgs(%q) cmd = %q, want %q\nTest: %s\nDescription: %s", 
+				t.Errorf("parseCommandArgs(%q) cmd = %q, want %q\nTest: %s\nDescription: %s",
 					tt.input, cmd, tt.expectedCmd, tt.name, tt.description)
 			}
-			
+
 			if len(args) != len(tt.expectedArgs) {
-				t.Errorf("parseCommandArgs(%q) args length = %d, want %d\nGot:  %v\nWant: %v\nTest: %s\nDescription: %s", 
+				t.Errorf("parseCommandArgs(%q) args length = %d, want %d\nGot:  %v\nWant: %v\nTest: %s\nDescription: %s",
 					tt.input, len(args), len(tt.expectedArgs), args, tt.expectedArgs, tt.name, tt.description)
 			}
-			
+
 			for i, arg := range args {
 				if i < len(tt.expectedArgs) && arg != tt.expectedArgs[i] {
-					t.Errorf("parseCommandArgs(%q) args[%d] = %q, want %q\nFull got:  %v\nFull want: %v\nTest: %s\nDescription: %s", 
+					t.Errorf("parseCommandArgs(%q) args[%d] = %q, want %q\nFull got:  %v\nFull want: %v\nTest: %s\nDescription: %s",
 						tt.input, i, arg, tt.expectedArgs[i], args, tt.expectedArgs, tt.name, tt.description)
 				}
 			}
@@ -124,22 +124,22 @@ func TestParseCommandArgs(t *testing.T) {
 
 func TestParseCommandArgsEdgeCases(t *testing.T) {
 	tests := []struct {
-		name          string
-		input         string
-		expectedCmd   string
-		expectedArgs  []string
+		name         string
+		input        string
+		expectedCmd  string
+		expectedArgs []string
 	}{
 		{
-			name:          "empty input",
-			input:         "",
-			expectedCmd:   "",
-			expectedArgs:  nil,
+			name:         "empty input",
+			input:        "",
+			expectedCmd:  "",
+			expectedArgs: nil,
 		},
 		{
-			name:          "whitespace only",
-			input:         "   ",
-			expectedCmd:   "",
-			expectedArgs:  nil,
+			name:         "whitespace only",
+			input:        "   ",
+			expectedCmd:  "",
+			expectedArgs: nil,
 		},
 		{
 			name:         "command only",
@@ -158,11 +158,11 @@ func TestParseCommandArgsEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd, args := parseCommandArgs(tt.input)
-			
+
 			if cmd != tt.expectedCmd {
 				t.Errorf("parseCommandArgs(%q) cmd = %q, want %q", tt.input, cmd, tt.expectedCmd)
 			}
-			
+
 			if len(args) != len(tt.expectedArgs) {
 				t.Errorf("parseCommandArgs(%q) args length = %d, want %d", tt.input, len(args), len(tt.expectedArgs))
 			}

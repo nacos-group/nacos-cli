@@ -22,7 +22,7 @@ func ExpandTilde(path string) (string, error) {
 		}
 		return homeDir, nil
 	}
-	
+
 	if strings.HasPrefix(path, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -30,7 +30,7 @@ func ExpandTilde(path string) (string, error) {
 		}
 		return filepath.Join(homeDir, path[2:]), nil
 	}
-	
+
 	// No expansion needed
 	return path, nil
 }

@@ -3,6 +3,7 @@ build/
 
 # Binary executable
 nacos-cli
+nacos-cli-*
 bin/nacos-cli
 
 # IDE
@@ -18,6 +19,7 @@ Thumbs.db
 
 # Go
 vendor/
+coverage.out
 
 # Node
 node_modules/

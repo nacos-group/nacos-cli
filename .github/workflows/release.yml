@@ -45,11 +45,6 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
@@ -62,10 +57,26 @@ jobs:
         run: |
           sed -i "s/const VERSION = '[^']*'/const VERSION = '${{ steps.version.outputs.version }}'/" bin/cli.js
 
-      - name: Build all platform binaries
-        run: make build-all VERSION=${{ steps.version.outputs.version }}
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p build
+          for PLATFORM in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            TMPDIR=$(mktemp -d)
+            gh release download "v${VERSION}" --pattern "nacos-cli-${VERSION}-${PLATFORM}.tar.gz" --dir "${TMPDIR}"
+            tar -xzf "${TMPDIR}/nacos-cli-${VERSION}-${PLATFORM}.tar.gz" -C "${TMPDIR}"
+            mv "${TMPDIR}/nacos-cli" "build/nacos-cli-${VERSION}-${PLATFORM}"
+            rm -rf "${TMPDIR}"
+          done
+          for PLATFORM in windows-amd64 windows-arm64; do
+            TMPDIR=$(mktemp -d)
+            gh release download "v${VERSION}" --pattern "nacos-cli-${VERSION}-${PLATFORM}.zip" --dir "${TMPDIR}"
+            unzip -o "${TMPDIR}/nacos-cli-${VERSION}-${PLATFORM}.zip" -d "${TMPDIR}"
+            mv "${TMPDIR}/nacos-cli.exe" "build/nacos-cli-${VERSION}-${PLATFORM}.exe"
+            rm -rf "${TMPDIR}"
+          done
 
       - name: Publish to npm
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

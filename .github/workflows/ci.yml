@@ -24,7 +24,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.64.8
+          version: v1.64
 
   test:
     name: Test
@@ -52,6 +52,7 @@ jobs:
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: [lint, test]
     runs-on: ubuntu-latest
     strategy:
       matrix:

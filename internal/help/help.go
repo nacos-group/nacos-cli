@@ -204,6 +204,93 @@ var (
 		},
 	}
 
+	SkillSubscribe = CommandHelp{
+		Command:     "skill-subscribe",
+		Description: "Subscribe to skill updates and start a background watcher that auto-updates local files.",
+		Parameters: []string{
+			"skillName...    Required. One or more skill names to subscribe",
+			"-o, --output    Output directory (default: ~/.skills)",
+			"--version       Pin to a specific version (e.g. v1, v2)",
+			"--label         Route label to resolve version (e.g. latest, stable)",
+			"--interval      Poll interval (default: 30s, min: 5s)",
+			"--foreground    Run watcher in the current process instead of the background",
+		},
+		Examples: []string{
+			"# Subscribe to a skill and start the background watcher",
+			"skill-subscribe pdf",
+			"",
+			"# Subscribe to multiple skills with custom interval",
+			"skill-subscribe pdf commit --interval 10s",
+			"",
+			"# Subscribe with a specific label",
+			"skill-subscribe pdf --label stable",
+			"",
+			"# Run in foreground for debugging",
+			"skill-subscribe pdf --foreground",
+			"",
+			"Note:",
+			"  - Runs in the background by default and polls the server periodically for changes",
+			"  - Auto-updates local skill files when MD5 fingerprint changes",
+			"  - Subscription state is persisted in skills-lock.json",
+			"  - Background watcher state is persisted in skills-watcher.pid",
+			"  - Use skill-stop to stop the background watcher",
+		},
+	}
+
+	SkillUnsubscribe = CommandHelp{
+		Command:     "skill-unsubscribe",
+		Description: "Unsubscribe from skill updates to stop auto-updating.",
+		Parameters: []string{
+			"skillName...    Required. One or more skill names to unsubscribe",
+			"-o, --output    Output directory (default: ~/.skills)",
+			"--purge         Remove local skill files after unsubscribing",
+		},
+		Examples: []string{
+			"# Unsubscribe from a skill (keep local files)",
+			"skill-unsubscribe pdf",
+			"",
+			"# Unsubscribe and remove local files",
+			"skill-unsubscribe pdf --purge",
+		},
+	}
+
+	SkillStatus = CommandHelp{
+		Command:     "skill-status",
+		Description: "Show status of all installed and subscribed skills tracked in skills-lock.json.",
+		Parameters: []string{
+			"-o, --output    Output directory (default: ~/.skills)",
+		},
+		Examples: []string{
+			"# Show status of all tracked skills",
+			"skill-status",
+			"",
+			"Note:",
+			"  - Displays: skill name, version, MD5, subscription status, last updated, watcher status",
+			"  - Use skill-subscribe to add subscriptions",
+			"  - Use skill-unsubscribe to remove subscriptions",
+		},
+	}
+
+	SkillStop = CommandHelp{
+		Command:     "skill-stop",
+		Description: "Stop the background skill subscription watcher.",
+		Parameters: []string{
+			"-o, --output    Output directory (default: ~/.skills)",
+		},
+		Examples: []string{
+			"# Stop the default background watcher",
+			"skill-stop",
+			"",
+			"# Stop the watcher for a custom skill directory",
+			"skill-stop -o ~/my-skills",
+			"",
+			"Note:",
+			"  - Stops the watcher process recorded in skills-watcher.pid",
+			"  - Does not unsubscribe skills or delete local skill files",
+			"  - Use skill-unsubscribe to remove subscriptions",
+		},
+	}
+
 	ConfigList = CommandHelp{
 		Command:     "config-list",
 		Description: "List all configurations from Nacos configuration center.",

@@ -594,6 +594,84 @@ func (s *SkillService) SubmitSkill(skillName, version string) error {
 	return nil
 }
 
+// SkillQueryResult holds the result of a conditional skill query.
+type SkillQueryResult struct {
+	Md5             string // content fingerprint from X-Nacos-Skill-Md5 header
+	ResolvedVersion string // resolved version from X-Nacos-Skill-Resolved-Version header
+	Updated         bool   // true if new content was downloaded
+	Deleted         bool   // true if the skill was not found (404)
+}
+
+// QuerySkill performs a conditional skill download using the MD5 fingerprint.
+// If the server content matches the provided md5, HTTP 304 is returned and no download occurs.
+// Returns the query result indicating whether an update was applied.
+func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 string) (*SkillQueryResult, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, err
+	}
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("name", skillName)
+	if version != "" {
+		params.Set("version", version)
+	}
+	if label != "" {
+		params.Set("label", label)
+	}
+	if md5 != "" {
+		params.Set("md5", md5)
+	}
+
+	apiURL := fmt.Sprintf("%s/nacos/v3/client/ai/skills?%s",
+		s.client.BaseURL(), params.Encode())
+
+	req, err := s.client.NewAuthedRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query skill: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// HTTP 304 Not Modified - content unchanged
+	if resp.StatusCode == http.StatusNotModified {
+		return &SkillQueryResult{Md5: md5, Updated: false}, nil
+	}
+
+	// HTTP 404 Not Found - skill deleted
+	if resp.StatusCode == http.StatusNotFound {
+		return &SkillQueryResult{Deleted: true}, nil
+	}
+
+	zipBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, client.ParseHTTPError(resp.StatusCode, zipBytes, "query skill")
+	}
+
+	// Extract response headers
+	newMd5 := resp.Header.Get("X-Nacos-Skill-Md5")
+	resolvedVersion := resp.Header.Get("X-Nacos-Skill-Resolved-Version")
+
+	// Extract ZIP to output directory
+	if err := extractZip(zipBytes, outputDir); err != nil {
+		return nil, fmt.Errorf("failed to extract skill: %w", err)
+	}
+
+	return &SkillQueryResult{
+		Md5:             newMd5,
+		ResolvedVersion: resolvedVersion,
+		Updated:         true,
+	}, nil
+}
+
 // ParseSkillMD parses SKILL.md file
 func (s *SkillService) ParseSkillMD(mdPath string) (*SkillInfo, error) {
 	content, err := os.ReadFile(mdPath)

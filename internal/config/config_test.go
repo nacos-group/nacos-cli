@@ -318,6 +318,7 @@ func TestConfigSetValueAndGetValue(t *testing.T) {
 	}{
 		{"server", "127.0.0.1:8848"},
 		{"auth-type", "sts-url"},
+		{"username", "alice"},
 		{"access-key", "ak"},
 		{"secret-key", "sk"},
 		{"security-token", "token"},
@@ -339,8 +340,24 @@ func TestConfigSetValueAndGetValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get access-key: %v", err)
 	}
-	if value != "ak" || !sensitive {
+	if value != "ak" || sensitive {
 		t.Fatalf("access-key value=%q sensitive=%v", value, sensitive)
+	}
+
+	value, sensitive, err = cfg.GetValue("username")
+	if err != nil {
+		t.Fatalf("get username: %v", err)
+	}
+	if value != "alice" || sensitive {
+		t.Fatalf("username value=%q sensitive=%v", value, sensitive)
+	}
+
+	value, sensitive, err = cfg.GetValue("secret-key")
+	if err != nil {
+		t.Fatalf("get secret-key: %v", err)
+	}
+	if value != "sk" || !sensitive {
+		t.Fatalf("secret-key value=%q sensitive=%v", value, sensitive)
 	}
 
 	value, sensitive, err = cfg.GetValue("server")

@@ -447,11 +447,11 @@ func (c *Config) GetValue(key string) (string, bool, error) {
 	case "authtype":
 		return c.AuthType, false, nil
 	case "username":
-		return c.Username, true, nil
+		return c.Username, false, nil
 	case "password":
 		return c.Password, true, nil
 	case "accesskey":
-		return c.AccessKey, true, nil
+		return c.AccessKey, false, nil
 	case "secretkey":
 		return c.SecretKey, true, nil
 	case "securitytoken":

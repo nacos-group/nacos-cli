@@ -44,8 +44,9 @@ automatically pulls updates when local state is Synced, and detects conflicts.`,
 		}
 
 		if len(state.Skills) == 0 {
-			fmt.Println("No skills subscribed. Use 'skill-sync add' first.")
-			return
+			fmt.Println("No skills subscribed yet. Use 'skill-sync add' to subscribe.")
+			fmt.Println("The daemon will start and pick up new subscriptions automatically.")
+			fmt.Println()
 		}
 
 		// Parse interval

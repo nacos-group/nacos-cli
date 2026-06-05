@@ -29,66 +29,75 @@ var skillSyncStatusCmd = &cobra.Command{
 			return
 		}
 
-		// Header info
-		fmt.Printf("Sync list source: local\n")
-		fmt.Printf("Tracking label: %s\n", state.Label)
-		printSyncDaemonStatus()
-		fmt.Println()
-
-		// Refresh local hashes for accurate status
-		refreshLocalHashes(state)
-
-		// Sort skill names
-		names := make([]string, 0, len(state.Skills))
-		for name := range state.Skills {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-
-		// Print table
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "SKILL\tSTATUS\tVERSION\tMD5\tUPDATED\tNEXT\n")
-		fmt.Fprintf(w, "-----\t------\t-------\t---\t-------\t----\n")
-
-		for _, name := range names {
-			entry := state.Skills[name]
-
-			version := entry.ResolvedVersion
-			if version == "" {
-				version = "-"
-			}
-
-			md5Display := shortMd5(entry.RemoteMd5)
-			if md5Display == "" {
-				md5Display = "-"
-			}
-
-			updatedAt := entry.UpdatedAt
-			if updatedAt != "" {
-				if idx := len(updatedAt); idx > 19 {
-					updatedAt = updatedAt[:19]
-				}
-			} else {
-				updatedAt = "-"
-			}
-
-			next := nextAction(name, entry, state)
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				name, entry.Status.DisplayString(), version, md5Display, updatedAt, next)
-		}
-		w.Flush()
-
-		// Summary
-		fmt.Printf("\nTotal: %d skills\n", len(state.Skills))
-		if len(state.Agents) > 0 {
-			agentNames := make([]string, 0, len(state.Agents))
-			for _, a := range state.Agents {
-				agentNames = append(agentNames, a.Name)
-			}
-			fmt.Printf("Agents: %v\n", agentNames)
-		}
+		printSyncStatusSummary(state)
 	},
+}
+
+func printSyncStatusSummary(state *skill.SyncState) {
+	fmt.Printf("Sync list source: local\n")
+	fmt.Printf("Tracking label: %s\n", state.Label)
+	printSyncDaemonStatus()
+	fmt.Println()
+
+	if len(state.Skills) == 0 {
+		fmt.Println("No skills subscribed.")
+		fmt.Println("Use 'nacos-cli skill-sync add <skill>' to subscribe.")
+		return
+	}
+
+	// Refresh local hashes for accurate status
+	refreshLocalHashes(state)
+
+	// Sort skill names
+	names := make([]string, 0, len(state.Skills))
+	for name := range state.Skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	// Print table
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "SKILL\tSTATUS\tVERSION\tMD5\tUPDATED\tNEXT\n")
+	fmt.Fprintf(w, "-----\t------\t-------\t---\t-------\t----\n")
+
+	for _, name := range names {
+		entry := state.Skills[name]
+
+		version := entry.ResolvedVersion
+		if version == "" {
+			version = "-"
+		}
+
+		md5Display := shortMd5(entry.RemoteMd5)
+		if md5Display == "" {
+			md5Display = "-"
+		}
+
+		updatedAt := entry.UpdatedAt
+		if updatedAt != "" {
+			if idx := len(updatedAt); idx > 19 {
+				updatedAt = updatedAt[:19]
+			}
+		} else {
+			updatedAt = "-"
+		}
+
+		next := nextAction(name, entry, state)
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			name, entry.Status.DisplayString(), version, md5Display, updatedAt, next)
+	}
+	w.Flush()
+
+	// Summary
+	fmt.Printf("\nTotal: %d skills\n", len(state.Skills))
+	if len(state.Agents) > 0 {
+		agentNames := make([]string, 0, len(state.Agents))
+		for _, a := range state.Agents {
+			agentNames = append(agentNames, a.Name)
+		}
+		fmt.Printf("Agents: %v\n", agentNames)
+	}
 }
 
 func printSyncDaemonStatus() {

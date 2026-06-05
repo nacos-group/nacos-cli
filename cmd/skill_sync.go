@@ -139,7 +139,7 @@ This command:
 		if addedCount > 0 {
 			running, _ := skill.IsSyncDaemonRunning()
 			if !running {
-				fmt.Printf("\nHint: run 'nacos-cli skill-sync start' to enable background sync.\n")
+				fmt.Printf("\nNote: sync daemon is not running. Use 'nacos-cli skill-sync start' to enable background sync.\n")
 			}
 		}
 	},

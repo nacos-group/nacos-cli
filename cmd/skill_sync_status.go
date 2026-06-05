@@ -97,7 +97,6 @@ func printSyncDaemonStatus() {
 		fmt.Printf("Sync daemon: running (pid: %d)\n", pid)
 	} else {
 		fmt.Printf("Sync daemon: stopped\n")
-		fmt.Printf("Hint: run 'nacos-cli skill-sync start' to enable background sync.\n")
 	}
 }
 

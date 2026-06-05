@@ -72,10 +72,17 @@ automatically pulls updates when local state is Synced, and detects conflicts.`,
 			os.Exit(1)
 		}
 
+		// Display info consistent with status output
+		fmt.Printf("Sync list source: local\n")
 		fmt.Printf("Tracking label: %s\n", state.Label)
-		fmt.Printf("Subscriptions: %s\n", strings.Join(state.GetSubscribedSkillNames(), ", "))
-		fmt.Printf("\nSkill sync daemon started (pid: %d).\n", pid)
-		fmt.Printf("  Log: %s\n", logPath)
+		fmt.Printf("Sync daemon: running (pid: %d)\n", pid)
+		fmt.Println()
+
+		if len(state.Skills) > 0 {
+			fmt.Printf("Subscriptions: %s\n", strings.Join(state.GetSubscribedSkillNames(), ", "))
+		}
+
+		fmt.Printf("\n  Log: %s\n", logPath)
 		fmt.Printf("  Stop: nacos-cli skill-sync stop\n")
 	},
 }

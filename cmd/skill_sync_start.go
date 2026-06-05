@@ -30,11 +30,15 @@ The daemon monitors Nacos for version changes on all subscribed skills,
 automatically pulls updates when local state is Synced, and detects conflicts.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Check if already running
-		running, existingPID := skill.IsSyncDaemonRunning()
-		if running {
-			fmt.Printf("Skill sync daemon is already running (pid: %d).\n", existingPID)
-			return
+		// In --foreground mode, this process IS the daemon. Skip the
+		// running-daemon check to avoid the false-positive where the
+		// parent has already written our own PID into the PID file.
+		if !syncStartForeground {
+			running, existingPID := skill.IsSyncDaemonRunning()
+			if running {
+				fmt.Printf("Skill sync daemon is already running (pid: %d).\n", existingPID)
+				return
+			}
 		}
 
 		// Load state to check subscriptions

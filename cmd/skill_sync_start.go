@@ -171,6 +171,13 @@ func syncPollOnce(skillService *skill.SkillService) {
 			continue
 		}
 
+		// IMPORTANT: compute local hash BEFORE QuerySkill, because QuerySkill
+		// will overwrite the local directory on a 200 response. We need to know
+		// the pre-pull state to detect whether the user had local modifications.
+		skillDir := filepath.Join(primaryDir, name)
+		preLocalHash, _ := skill.ComputeDirectoryHash(skillDir)
+		localChanged := preLocalHash != "" && entry.SyncedHash != "" && preLocalHash != entry.SyncedHash
+
 		// Query with current MD5 for conditional download
 		result, err := skillService.QuerySkill(name, primaryDir, "", state.Label, entry.RemoteMd5)
 		if err != nil {
@@ -186,20 +193,15 @@ func syncPollOnce(skillService *skill.SkillService) {
 		}
 
 		if result.Updated {
-			// Remote changed
-			skillDir := filepath.Join(primaryDir, name)
-			localHash, _ := skill.ComputeDirectoryHash(skillDir)
-
-			localChanged := localHash != "" && entry.SyncedHash != "" && localHash != entry.SyncedHash
-
+			// Remote changed (local has been overwritten by QuerySkill at this point)
 			if localChanged {
-				// Conflict: both sides changed
+				// Conflict: both sides changed before pull
 				entry.RemoteMd5 = result.Md5
 				entry.ResolvedVersion = result.ResolvedVersion
 				entry.Status = skill.SyncStatusConflict
 				fmt.Printf("[%s] Conflict: %s (local modified + remote updated)\n", timeNow(), name)
 			} else {
-				// Safe to auto-pull: copy to all agents
+				// Safe to auto-pull: copy to all other agents
 				sourceDir := filepath.Join(primaryDir, name)
 				if len(state.Agents) > 1 {
 					_ = skill.EnsureSkillInAllAgents(name, sourceDir, state.Agents[1:])
@@ -217,7 +219,16 @@ func syncPollOnce(skillService *skill.SkillService) {
 			state.Skills[name] = entry
 			changed = true
 		} else {
-			// Not modified - check lifecycle for "uploaded" skills (Phase 3)
+			// Not modified on remote. Update local status based on local changes.
+			if localChanged && entry.Status != skill.SyncStatusLocalChanges &&
+				entry.Status != skill.SyncStatusUploaded {
+				entry.LocalHash = preLocalHash
+				entry.Status = skill.SyncStatusLocalChanges
+				state.Skills[name] = entry
+				changed = true
+			}
+
+			// Check lifecycle for "uploaded" skills (Phase 3)
 			if entry.Status == skill.SyncStatusUploaded {
 				if skill.TryAutoTransitionToSynced(state, name, skillService) {
 					fmt.Printf("[%s] Published: %s (auto-synced)\n", timeNow(), name)

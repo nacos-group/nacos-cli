@@ -83,6 +83,9 @@ func uploadSingleSkill(skillPath string, skillService *skill.SkillService, overw
 
 	fmt.Printf("Skill draft uploaded successfully!\n")
 	fmt.Printf("  Tip: Use 'skill-review %s' to submit the draft for review.\n", skillName)
+
+	// Update sync state if skill is tracked
+	updateSyncStateAfterUpload(skillName)
 }
 
 func uploadAllSkills(folderPath string, skillService *skill.SkillService, overwrite bool) {
@@ -152,4 +155,26 @@ func init() {
 	uploadSkillCmd.Flags().BoolVar(&uploadAll, "all", false, "Upload all skills in the directory")
 	uploadSkillCmd.Flags().Var(overwriteFlagValue{value: &uploadOverwrite}, "overwrite", "Whether to overwrite existing draft: true | false")
 	rootCmd.AddCommand(uploadSkillCmd)
+}
+
+// updateSyncStateAfterUpload refreshes the sync state after a successful upload.
+func updateSyncStateAfterUpload(skillName string) {
+	state, err := skill.LoadSyncState()
+	if err != nil {
+		return // Non-fatal: sync state might not exist yet
+	}
+
+	entry, ok := state.Skills[skillName]
+	if !ok {
+		return // Skill not tracked in sync state
+	}
+
+	entry.Status = skill.SyncStatusUploaded
+	state.Skills[skillName] = entry
+
+	if err := skill.SaveSyncState(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update sync state: %v\n", err)
+	} else {
+		fmt.Printf("  Sync state updated: %s → Uploaded\n", skillName)
+	}
 }

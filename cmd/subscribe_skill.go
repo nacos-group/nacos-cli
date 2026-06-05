@@ -25,10 +25,11 @@ var (
 )
 
 var subscribeSkillCmd = &cobra.Command{
-	Use:   "skill-subscribe [skillName...]",
-	Short: "Subscribe to skill updates and auto-update local files",
-	Long:  help.SkillSubscribe.FormatForCLI("nacos-cli"),
-	Args:  cobra.MinimumNArgs(1),
+	Use:        "skill-subscribe [skillName...]",
+	Short:      "Subscribe to skill updates and auto-update local files",
+	Long:       help.SkillSubscribe.FormatForCLI("nacos-cli"),
+	Deprecated: "use 'nacos-cli skill-sync add' instead",
+	Args:       cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		skillNames := args
 

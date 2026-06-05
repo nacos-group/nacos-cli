@@ -18,10 +18,11 @@ var (
 )
 
 var statusSkillCmd = &cobra.Command{
-	Use:   "skill-status",
-	Short: "Show status of installed and subscribed skills",
-	Long:  help.SkillStatus.FormatForCLI("nacos-cli"),
-	Args:  cobra.NoArgs,
+	Use:        "skill-status",
+	Short:      "Show status of installed and subscribed skills",
+	Long:       help.SkillStatus.FormatForCLI("nacos-cli"),
+	Deprecated: "use 'nacos-cli skill-sync status' instead",
+	Args:       cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Resolve output directory
 		outputDir := resolveSkillOutputDir(statusSkillOutput)

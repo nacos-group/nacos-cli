@@ -16,10 +16,11 @@ var (
 )
 
 var unsubscribeSkillCmd = &cobra.Command{
-	Use:   "skill-unsubscribe [skillName...]",
-	Short: "Unsubscribe from skill updates",
-	Long:  help.SkillUnsubscribe.FormatForCLI("nacos-cli"),
-	Args:  cobra.MinimumNArgs(1),
+	Use:        "skill-unsubscribe [skillName...]",
+	Short:      "Unsubscribe from skill updates",
+	Long:       help.SkillUnsubscribe.FormatForCLI("nacos-cli"),
+	Deprecated: "use 'nacos-cli skill-sync remove' instead",
+	Args:       cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		skillNames := args
 

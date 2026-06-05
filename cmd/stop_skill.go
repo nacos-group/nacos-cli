@@ -14,10 +14,11 @@ import (
 var stopSkillOutput string
 
 var stopSkillCmd = &cobra.Command{
-	Use:   "skill-stop",
-	Short: "Stop the background skill subscription watcher",
-	Long:  help.SkillStop.FormatForCLI("nacos-cli"),
-	Args:  cobra.NoArgs,
+	Use:        "skill-stop",
+	Short:      "Stop the background skill subscription watcher",
+	Long:       help.SkillStop.FormatForCLI("nacos-cli"),
+	Deprecated: "use 'nacos-cli skill-sync stop' instead",
+	Args:       cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		outputDir := resolveSkillOutputDir(stopSkillOutput)
 

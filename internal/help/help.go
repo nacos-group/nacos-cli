@@ -353,9 +353,34 @@ var (
 
 	SkillSync = CommandHelp{
 		Command:     "skill-sync",
-		Description: "(Removed) Skill sync is no longer supported.",
-		Parameters:  []string{},
-		Examples:    []string{},
+		Description: "Unified skill synchronization management across agent directories.",
+		Parameters: []string{
+			"add <skill>     Subscribe and initial pull",
+			"remove <skill>  Unsubscribe (keeps local files)",
+			"status          Show sync state table",
+			"resolve <skill> Resolve conflicts (--use-local / --use-remote)",
+			"start           Start background sync daemon",
+			"stop            Stop background sync daemon",
+			"set-label       Set global tracking label",
+			"agent           Manage agent directories",
+			"pull <skill>    Manually pull latest version",
+		},
+		Examples: []string{
+			"# Subscribe to a skill",
+			"skill-sync add pdf",
+			"",
+			"# Start background sync",
+			"skill-sync start",
+			"",
+			"# Check status",
+			"skill-sync status",
+			"",
+			"# Resolve conflict non-interactively",
+			"skill-sync resolve pdf --use-remote",
+			"",
+			"# Resolve all conflicts",
+			"skill-sync resolve --all --use-local",
+		},
 	}
 
 	AgentSpecList = CommandHelp{

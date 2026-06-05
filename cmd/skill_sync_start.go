@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nacos-group/nacos-cli/internal/config"
 	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/spf13/cobra"
 )
@@ -260,15 +261,32 @@ func startSyncDaemonBackground() (int, string, error) {
 	// Build args: rerun with --foreground
 	args := []string{"skill-sync", "start", "--foreground", "--interval", syncStartInterval}
 
-	// Pass through global flags
-	if serverAddr != "" {
-		args = append(args, "--server", serverAddr)
+	// Pass through connection config so the child can authenticate.
+	// The child process has no stdin, so it cannot prompt for missing config.
+	// We must ensure it gets a complete config path or profile.
+	if configFile != "" {
+		args = append(args, "--config", configFile)
+	} else {
+		// Resolve the effective profile name (explicit or current default)
+		effectiveProfile := profileName
+		if effectiveProfile == "" {
+			if current, err := config.GetCurrentProfile(); err == nil {
+				effectiveProfile = current
+			} else {
+				effectiveProfile = config.DefaultProfile
+			}
+		}
+		args = append(args, "--profile", effectiveProfile)
 	}
+
 	if namespace != "" {
 		args = append(args, "--namespace", namespace)
 	}
-	if profileName != "" {
-		args = append(args, "--profile", profileName)
+	if scheme != "" && scheme != "http" {
+		args = append(args, "--scheme", scheme)
+	}
+	if verbose {
+		args = append(args, "--verbose")
 	}
 
 	cmd := exec.Command(executable, args...)

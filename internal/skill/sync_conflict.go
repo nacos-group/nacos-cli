@@ -62,8 +62,7 @@ func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillSer
 	}
 
 	// Re-download to first agent directory (unconditional, no md5)
-	primaryDir := agents[0].Path
-	result, err := skillService.QuerySkill(skillName, primaryDir, "", state.Label, "")
+	result, err := skillService.FetchSkill(skillName, "", state.Label, "")
 	if err != nil {
 		return fmt.Errorf("failed to download skill: %w", err)
 	}
@@ -71,16 +70,27 @@ func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillSer
 		return fmt.Errorf("skill %q not found on server", skillName)
 	}
 
-	// Copy to remaining agents
-	sourceDir := filepath.Join(primaryDir, skillName)
-	if len(agents) > 1 {
-		if err := EnsureSkillInAllAgents(skillName, sourceDir, agents[1:]); err != nil {
-			return fmt.Errorf("failed to sync to other agents: %w", err)
-		}
+	stageRoot, err := os.MkdirTemp("", "nacos-skill-resolve-")
+	if err != nil {
+		return fmt.Errorf("failed to create staging dir: %w", err)
+	}
+	defer os.RemoveAll(stageRoot)
+
+	if err := ExtractSkillZip(result.ZipBytes, stageRoot); err != nil {
+		return fmt.Errorf("failed to extract remote skill: %w", err)
+	}
+	sourceDir := filepath.Join(stageRoot, skillName)
+	if info, err := os.Stat(sourceDir); err != nil {
+		return fmt.Errorf("remote skill directory not found: %w", err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("remote skill path is not a directory: %s", sourceDir)
+	}
+	if err := ReplaceSkillInAgents(skillName, sourceDir, agents); err != nil {
+		return fmt.Errorf("failed to apply remote skill: %w", err)
 	}
 
 	// Recompute local hash
-	localHash, err := ComputeDirectoryHash(sourceDir)
+	localHash, err := ComputeDirectoryHash(filepath.Join(agents[0].Path, skillName))
 	if err != nil {
 		return fmt.Errorf("failed to compute hash: %w", err)
 	}

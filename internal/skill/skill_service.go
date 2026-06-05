@@ -344,9 +344,9 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 	return extractZip(zipBytes, outputDir)
 }
 
-// extractZip extracts a ZIP byte array to the target directory.
+// ExtractSkillZip extracts a ZIP byte array to the target directory.
 // ZIP entries like "skillName/SKILL.md" are extracted preserving their path structure.
-func extractZip(zipBytes []byte, targetDir string) error {
+func ExtractSkillZip(zipBytes []byte, targetDir string) error {
 	zipReader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
 		return fmt.Errorf("failed to read zip: %w", err)
@@ -389,6 +389,11 @@ func extractZip(zipBytes []byte, targetDir string) error {
 	}
 
 	return nil
+}
+
+// extractZip preserves the existing private helper name for older call sites in this package.
+func extractZip(zipBytes []byte, targetDir string) error {
+	return ExtractSkillZip(zipBytes, targetDir)
 }
 
 // UploadSkill uploads a skill draft from local directory or a pre-built zip file.
@@ -605,12 +610,13 @@ type SkillQueryResult struct {
 	ResolvedVersion string // resolved version from X-Nacos-Skill-Resolved-Version header
 	Updated         bool   // true if new content was downloaded
 	Deleted         bool   // true if the skill was not found (404)
+	ZipBytes        []byte // ZIP payload when Updated=true
 }
 
-// QuerySkill performs a conditional skill download using the MD5 fingerprint.
-// If the server content matches the provided md5, HTTP 304 is returned and no download occurs.
-// Returns the query result indicating whether an update was applied.
-func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 string) (*SkillQueryResult, error) {
+// FetchSkill performs a conditional skill download using the MD5 fingerprint.
+// If the server content matches the provided md5, HTTP 304 is returned and no ZIP is downloaded.
+// The returned ZIP payload is not extracted; callers decide when and where to apply it.
+func (s *SkillService) FetchSkill(skillName, version, label, md5 string) (*SkillQueryResult, error) {
 	if err := s.client.EnsureTokenValid(); err != nil {
 		return nil, err
 	}
@@ -646,8 +652,12 @@ func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 stri
 	// Still read the resolved version header so callers can detect label
 	// switches even when server claims md5 is unchanged.
 	if resp.StatusCode == http.StatusNotModified {
+		responseMd5 := resp.Header.Get("X-Nacos-Skill-Md5")
+		if responseMd5 == "" {
+			responseMd5 = md5
+		}
 		return &SkillQueryResult{
-			Md5:             md5,
+			Md5:             responseMd5,
 			ResolvedVersion: resp.Header.Get("X-Nacos-Skill-Resolved-Version"),
 			Updated:         false,
 		}, nil
@@ -671,16 +681,26 @@ func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 stri
 	newMd5 := resp.Header.Get("X-Nacos-Skill-Md5")
 	resolvedVersion := resp.Header.Get("X-Nacos-Skill-Resolved-Version")
 
-	// Extract ZIP to output directory
-	if err := extractZip(zipBytes, outputDir); err != nil {
-		return nil, fmt.Errorf("failed to extract skill: %w", err)
-	}
-
 	return &SkillQueryResult{
 		Md5:             newMd5,
 		ResolvedVersion: resolvedVersion,
 		Updated:         true,
+		ZipBytes:        zipBytes,
 	}, nil
+}
+
+// QuerySkill performs a conditional skill download and extracts the ZIP to outputDir on 200.
+func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 string) (*SkillQueryResult, error) {
+	result, err := s.FetchSkill(skillName, version, label, md5)
+	if err != nil {
+		return nil, err
+	}
+	if result.Updated {
+		if err := extractZip(result.ZipBytes, outputDir); err != nil {
+			return nil, fmt.Errorf("failed to extract skill: %w", err)
+		}
+	}
+	return result, nil
 }
 
 // ParseSkillMD parses SKILL.md file

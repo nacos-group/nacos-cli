@@ -161,7 +161,6 @@ func syncPollOnce(skillService *skill.SkillService) {
 		return
 	}
 
-	primaryDir := state.Agents[0].Path
 	changed := false
 
 	for name, entry := range state.Skills {
@@ -171,15 +170,10 @@ func syncPollOnce(skillService *skill.SkillService) {
 			continue
 		}
 
-		// IMPORTANT: compute local hash BEFORE QuerySkill, because QuerySkill
-		// will overwrite the local directory on a 200 response. We need to know
-		// the pre-pull state to detect whether the user had local modifications.
-		skillDir := filepath.Join(primaryDir, name)
-		preLocalHash, _ := skill.ComputeDirectoryHash(skillDir)
-		localChanged := preLocalHash != "" && entry.SyncedHash != "" && preLocalHash != entry.SyncedHash
+		localChanged, preLocalHash, dirtyAgents := detectLocalChanges(name, state.Agents, entry.SyncedHash)
 
 		// Query with current MD5 for conditional download
-		result, err := skillService.QuerySkill(name, primaryDir, "", state.Label, entry.RemoteMd5)
+		result, err := skillService.FetchSkill(name, "", state.Label, entry.RemoteMd5)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[%s] Error polling %s: %v\n", timeNow(), name, err)
 			continue
@@ -196,7 +190,7 @@ func syncPollOnce(skillService *skill.SkillService) {
 			entry.ResolvedVersion != "" && result.ResolvedVersion != entry.ResolvedVersion {
 			fmt.Printf("[%s] Label moved (%s → %s), forcing re-pull for %s\n",
 				timeNow(), entry.ResolvedVersion, result.ResolvedVersion, name)
-			result, err = skillService.QuerySkill(name, primaryDir, "", state.Label, "")
+			result, err = skillService.FetchSkill(name, "", state.Label, "")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[%s] Error force-pulling %s: %v\n", timeNow(), name, err)
 				continue
@@ -211,26 +205,44 @@ func syncPollOnce(skillService *skill.SkillService) {
 		}
 
 		if result.Updated {
-			// Remote changed (local has been overwritten by QuerySkill at this point)
+			sourceDir, cleanup, err := stageFetchedSkill(name, result.ZipBytes)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] Error staging %s: %v\n", timeNow(), name, err)
+				continue
+			}
+
+			newHash, err := skill.ComputeDirectoryHash(sourceDir)
+			if err != nil {
+				cleanup()
+				fmt.Fprintf(os.Stderr, "[%s] Error hashing staged %s: %v\n", timeNow(), name, err)
+				continue
+			}
+
 			if localChanged {
 				// Conflict: both sides changed before pull
+				cleanup()
 				entry.RemoteMd5 = result.Md5
 				entry.ResolvedVersion = result.ResolvedVersion
+				entry.LocalHash = preLocalHash
 				entry.Status = skill.SyncStatusConflict
-				fmt.Printf("[%s] Conflict: %s (local modified + remote updated)\n", timeNow(), name)
+				entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				fmt.Printf("[%s] Conflict: %s (local modified in %s + remote updated)\n",
+					timeNow(), name, strings.Join(dirtyAgents, ", "))
 			} else {
-				// Safe to auto-pull: copy to all other agents
-				sourceDir := filepath.Join(primaryDir, name)
-				if len(state.Agents) > 1 {
-					_ = skill.EnsureSkillInAllAgents(name, sourceDir, state.Agents[1:])
+				// Safe to auto-pull: replace every agent directory from the staged copy.
+				if err := skill.ReplaceSkillInAgents(name, sourceDir, state.Agents); err != nil {
+					cleanup()
+					fmt.Fprintf(os.Stderr, "[%s] Error applying %s: %v\n", timeNow(), name, err)
+					continue
 				}
+				cleanup()
 
-				newHash, _ := skill.ComputeDirectoryHash(sourceDir)
 				entry.RemoteMd5 = result.Md5
 				entry.ResolvedVersion = result.ResolvedVersion
 				entry.LocalHash = newHash
 				entry.SyncedHash = newHash
 				entry.Status = skill.SyncStatusSynced
+				entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 				fmt.Printf("[%s] Updated: %s → %s\n", timeNow(), name, result.ResolvedVersion)
 			}
 
@@ -261,6 +273,50 @@ func syncPollOnce(skillService *skill.SkillService) {
 			fmt.Fprintf(os.Stderr, "[%s] Error: failed to save state: %v\n", timeNow(), err)
 		}
 	}
+}
+
+func detectLocalChanges(skillName string, agents []skill.AgentDir, syncedHash string) (bool, string, []string) {
+	var dirtyAgents []string
+	primaryHash := ""
+	for idx, agent := range agents {
+		skillDir := filepath.Join(agent.Path, skillName)
+		localHash, _ := skill.ComputeDirectoryHash(skillDir)
+		if idx == 0 {
+			primaryHash = localHash
+		}
+		if localHash != "" && syncedHash != "" && localHash != syncedHash {
+			dirtyAgents = append(dirtyAgents, agent.Name)
+		}
+	}
+	return len(dirtyAgents) > 0, primaryHash, dirtyAgents
+}
+
+func stageFetchedSkill(skillName string, zipBytes []byte) (string, func(), error) {
+	if len(zipBytes) == 0 {
+		return "", nil, fmt.Errorf("empty skill ZIP")
+	}
+	stageRoot, err := os.MkdirTemp("", "nacos-skill-sync-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(stageRoot)
+	}
+	if err := skill.ExtractSkillZip(zipBytes, stageRoot); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	sourceDir := filepath.Join(stageRoot, skillName)
+	info, err := os.Stat(sourceDir)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("staged skill directory not found: %w", err)
+	}
+	if !info.IsDir() {
+		cleanup()
+		return "", nil, fmt.Errorf("staged skill path is not a directory: %s", sourceDir)
+	}
+	return sourceDir, cleanup, nil
 }
 
 func timeNow() string {
@@ -358,4 +414,3 @@ func init() {
 	skillSyncStartCmd.Flags().StringVar(&syncStartInterval, "interval", "30s", "Poll interval (e.g. 10s, 1m)")
 	skillSyncCmd.AddCommand(skillSyncStartCmd)
 }
-

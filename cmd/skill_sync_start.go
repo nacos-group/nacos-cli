@@ -185,6 +185,10 @@ func syncPollOnce(skillService *skill.SkillService) {
 			continue
 		}
 
+		fmt.Printf("[%s] Poll: %s label=%s sentMd5=%s updated=%v deleted=%v newMd5=%s newVersion=%s\n",
+			timeNow(), name, state.Label, shortHash(entry.RemoteMd5), result.Updated, result.Deleted,
+			shortHash(result.Md5), result.ResolvedVersion)
+
 		if result.Deleted {
 			fmt.Printf("[%s] Deleted: %s (removed from server)\n", timeNow(), name)
 			delete(state.Skills, name)
@@ -247,6 +251,16 @@ func syncPollOnce(skillService *skill.SkillService) {
 
 func timeNow() string {
 	return time.Now().Format("15:04:05")
+}
+
+func shortHash(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	if h == "" {
+		return "-"
+	}
+	return h
 }
 
 func startSyncDaemonBackground() (int, string, error) {

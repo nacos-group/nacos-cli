@@ -642,9 +642,15 @@ func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 stri
 	}
 	defer resp.Body.Close()
 
-	// HTTP 304 Not Modified - content unchanged
+	// HTTP 304 Not Modified - content unchanged.
+	// Still read the resolved version header so callers can detect label
+	// switches even when server claims md5 is unchanged.
 	if resp.StatusCode == http.StatusNotModified {
-		return &SkillQueryResult{Md5: md5, Updated: false}, nil
+		return &SkillQueryResult{
+			Md5:             md5,
+			ResolvedVersion: resp.Header.Get("X-Nacos-Skill-Resolved-Version"),
+			Updated:         false,
+		}, nil
 	}
 
 	// HTTP 404 Not Found - skill deleted

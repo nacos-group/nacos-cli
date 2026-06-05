@@ -189,6 +189,20 @@ func syncPollOnce(skillService *skill.SkillService) {
 			timeNow(), name, state.Label, shortHash(entry.RemoteMd5), result.Updated, result.Deleted,
 			shortHash(result.Md5), result.ResolvedVersion)
 
+		// Workaround: when server returns 304 but the resolved version differs from
+		// what we have, the label has been pointed to a new version. Re-query without
+		// md5 to force a full download.
+		if !result.Updated && !result.Deleted && result.ResolvedVersion != "" &&
+			entry.ResolvedVersion != "" && result.ResolvedVersion != entry.ResolvedVersion {
+			fmt.Printf("[%s] Label moved (%s → %s), forcing re-pull for %s\n",
+				timeNow(), entry.ResolvedVersion, result.ResolvedVersion, name)
+			result, err = skillService.QuerySkill(name, primaryDir, "", state.Label, "")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] Error force-pulling %s: %v\n", timeNow(), name, err)
+				continue
+			}
+		}
+
 		if result.Deleted {
 			fmt.Printf("[%s] Deleted: %s (removed from server)\n", timeNow(), name)
 			delete(state.Skills, name)

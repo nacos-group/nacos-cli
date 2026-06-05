@@ -1,0 +1,254 @@
+package skill
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestLoadSyncState_Empty(t *testing.T) {
+	// Point to a temp dir so it won't find a real state file
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Ensure config dir exists
+	configDir := filepath.Join(tmpDir, ".nacos-cli")
+	os.MkdirAll(configDir, 0755)
+
+	state, err := LoadSyncState()
+	if err != nil {
+		t.Fatalf("LoadSyncState() error = %v", err)
+	}
+
+	if state.Version != SyncStateVersion {
+		t.Errorf("Version = %d, want %d", state.Version, SyncStateVersion)
+	}
+	if state.Label != "latest" {
+		t.Errorf("Label = %q, want %q", state.Label, "latest")
+	}
+	if len(state.Skills) != 0 {
+		t.Errorf("Skills = %v, want empty", state.Skills)
+	}
+	if len(state.Agents) != 0 {
+		t.Errorf("Agents = %v, want empty", state.Agents)
+	}
+}
+
+func TestSyncState_AddRemoveSkill(t *testing.T) {
+	state := &SyncState{
+		Version: SyncStateVersion,
+		Label:   "latest",
+		Skills:  make(map[string]SyncSkillEntry),
+	}
+
+	state.AddSkill("pdf", "latest", "v1.0.0", "abc123", "hash456")
+
+	entry, ok := state.Skills["pdf"]
+	if !ok {
+		t.Fatal("AddSkill did not add entry")
+	}
+	if entry.Name != "pdf" {
+		t.Errorf("Name = %q, want %q", entry.Name, "pdf")
+	}
+	if entry.Status != SyncStatusSynced {
+		t.Errorf("Status = %q, want %q", entry.Status, SyncStatusSynced)
+	}
+	if entry.RemoteMd5 != "abc123" {
+		t.Errorf("RemoteMd5 = %q, want %q", entry.RemoteMd5, "abc123")
+	}
+	if entry.LocalHash != "hash456" {
+		t.Errorf("LocalHash = %q, want %q", entry.LocalHash, "hash456")
+	}
+	if entry.SyncedHash != "hash456" {
+		t.Errorf("SyncedHash = %q, want %q", entry.SyncedHash, "hash456")
+	}
+
+	state.RemoveSkill("pdf")
+	if _, ok := state.Skills["pdf"]; ok {
+		t.Error("RemoveSkill did not remove entry")
+	}
+}
+
+func TestSyncState_SetLabel(t *testing.T) {
+	state := &SyncState{Label: "latest"}
+	state.SetLabel("stable")
+	if state.Label != "stable" {
+		t.Errorf("Label = %q, want %q", state.Label, "stable")
+	}
+}
+
+func TestDetermineStatus(t *testing.T) {
+	tests := []struct {
+		name           string
+		entry          SyncSkillEntry
+		localHash      string
+		remoteMd5      string
+		expectedStatus SyncStatus
+	}{
+		{
+			name:           "synced - no changes",
+			entry:          SyncSkillEntry{SyncedHash: "aaa", RemoteMd5: "bbb", Status: SyncStatusSynced},
+			localHash:      "aaa",
+			remoteMd5:      "bbb",
+			expectedStatus: SyncStatusSynced,
+		},
+		{
+			name:           "local changes",
+			entry:          SyncSkillEntry{SyncedHash: "aaa", RemoteMd5: "bbb", Status: SyncStatusSynced},
+			localHash:      "ccc",
+			remoteMd5:      "bbb",
+			expectedStatus: SyncStatusLocalChanges,
+		},
+		{
+			name:           "remote changes",
+			entry:          SyncSkillEntry{SyncedHash: "aaa", RemoteMd5: "bbb", Status: SyncStatusSynced},
+			localHash:      "aaa",
+			remoteMd5:      "ddd",
+			expectedStatus: SyncStatusRemoteChanges,
+		},
+		{
+			name:           "conflict - both changed",
+			entry:          SyncSkillEntry{SyncedHash: "aaa", RemoteMd5: "bbb", Status: SyncStatusSynced},
+			localHash:      "ccc",
+			remoteMd5:      "ddd",
+			expectedStatus: SyncStatusConflict,
+		},
+		{
+			name:           "uploaded status preserved",
+			entry:          SyncSkillEntry{SyncedHash: "aaa", RemoteMd5: "bbb", Status: SyncStatusUploaded},
+			localHash:      "aaa",
+			remoteMd5:      "bbb",
+			expectedStatus: SyncStatusUploaded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DetermineStatus(tt.entry, tt.localHash, tt.remoteMd5)
+			if got != tt.expectedStatus {
+				t.Errorf("DetermineStatus() = %q, want %q", got, tt.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestComputeDirectoryHash_Deterministic(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create some files
+	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Test Skill"), 0644)
+	os.MkdirAll(filepath.Join(dir, "assets"), 0755)
+	os.WriteFile(filepath.Join(dir, "assets", "prompt.txt"), []byte("hello world"), 0644)
+
+	hash1, err := ComputeDirectoryHash(dir)
+	if err != nil {
+		t.Fatalf("ComputeDirectoryHash() error = %v", err)
+	}
+	if hash1 == "" {
+		t.Fatal("ComputeDirectoryHash() returned empty string")
+	}
+
+	// Same content should produce same hash
+	hash2, err := ComputeDirectoryHash(dir)
+	if err != nil {
+		t.Fatalf("ComputeDirectoryHash() error = %v", err)
+	}
+	if hash1 != hash2 {
+		t.Errorf("hash not deterministic: %q != %q", hash1, hash2)
+	}
+}
+
+func TestComputeDirectoryHash_DiffOnChange(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Original"), 0644)
+
+	hash1, _ := ComputeDirectoryHash(dir)
+
+	// Modify file
+	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Modified"), 0644)
+
+	hash2, _ := ComputeDirectoryHash(dir)
+
+	if hash1 == hash2 {
+		t.Error("hash did not change after file modification")
+	}
+}
+
+func TestComputeDirectoryHash_ExcludesGit(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Test"), 0644)
+
+	hash1, _ := ComputeDirectoryHash(dir)
+
+	// Add .git directory (should be excluded)
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("git stuff"), 0644)
+
+	hash2, _ := ComputeDirectoryHash(dir)
+
+	if hash1 != hash2 {
+		t.Error("hash changed when .git was added (should be excluded)")
+	}
+}
+
+func TestSyncState_SaveLoadRoundTrip(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".nacos-cli")
+	os.MkdirAll(configDir, 0755)
+
+	state := &SyncState{
+		Version: SyncStateVersion,
+		Label:   "stable",
+		Agents: []AgentDir{
+			{Name: "codex", Path: "/home/user/.codex/skills", AutoFound: true},
+		},
+		Skills: map[string]SyncSkillEntry{
+			"pdf": {
+				Name:            "pdf",
+				Label:           "stable",
+				ResolvedVersion: "v1.0.0",
+				RemoteMd5:       "abc123",
+				LocalHash:       "def456",
+				SyncedHash:      "def456",
+				Status:          SyncStatusSynced,
+				UpdatedAt:       "2026-01-01T00:00:00Z",
+			},
+		},
+	}
+
+	if err := SaveSyncState(state); err != nil {
+		t.Fatalf("SaveSyncState() error = %v", err)
+	}
+
+	loaded, err := LoadSyncState()
+	if err != nil {
+		t.Fatalf("LoadSyncState() error = %v", err)
+	}
+
+	if loaded.Label != "stable" {
+		t.Errorf("Label = %q, want %q", loaded.Label, "stable")
+	}
+	if len(loaded.Agents) != 1 {
+		t.Fatalf("Agents len = %d, want 1", len(loaded.Agents))
+	}
+	if loaded.Agents[0].Name != "codex" {
+		t.Errorf("Agent name = %q, want %q", loaded.Agents[0].Name, "codex")
+	}
+
+	entry, ok := loaded.Skills["pdf"]
+	if !ok {
+		t.Fatal("Skill 'pdf' not found after load")
+	}
+	if entry.Status != SyncStatusSynced {
+		t.Errorf("Status = %q, want %q", entry.Status, SyncStatusSynced)
+	}
+	if entry.RemoteMd5 != "abc123" {
+		t.Errorf("RemoteMd5 = %q, want %q", entry.RemoteMd5, "abc123")
+	}
+}

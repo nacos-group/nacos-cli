@@ -71,6 +71,11 @@ func NewSkillService(nacosClient *client.NacosClient) *SkillService {
 	}
 }
 
+// Client returns the underlying NacosClient.
+func (s *SkillService) Client() *client.NacosClient {
+	return s.client
+}
+
 // SkillListResponse represents the response from skill list API
 type SkillListResponse struct {
 	TotalCount     int             `json:"totalCount"`

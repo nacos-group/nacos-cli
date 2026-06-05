@@ -84,6 +84,7 @@ This command:
 		nacosClient := mustNewNacosClient()
 		skillService := skill.NewSkillService(nacosClient)
 
+		var addedCount int
 		for _, skillName := range skillNames {
 			// Check if already subscribed
 			if existing, ok := state.Skills[skillName]; ok {
@@ -122,6 +123,7 @@ This command:
 
 			// Add to state
 			state.AddSkill(skillName, state.Label, result.ResolvedVersion, result.Md5, localHash)
+			addedCount++
 
 			fmt.Printf("  Subscribed: %s (version: %s)\n", skillName, result.ResolvedVersion)
 			fmt.Printf("  Synced to %d agent(s)\n", len(state.Agents))
@@ -133,10 +135,12 @@ This command:
 			os.Exit(1)
 		}
 
-		// Hint about starting daemon
-		running, _ := skill.IsSyncDaemonRunning()
-		if !running {
-			fmt.Printf("\nHint: run 'nacos-cli skill-sync start' to enable background sync.\n")
+		// Hint about starting daemon (only when new skills were added)
+		if addedCount > 0 {
+			running, _ := skill.IsSyncDaemonRunning()
+			if !running {
+				fmt.Printf("\nHint: run 'nacos-cli skill-sync start' to enable background sync.\n")
+			}
 		}
 	},
 }

@@ -6,10 +6,9 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 
 - 🚀 Fast and lightweight - single binary with no dependencies
 - 💻 Interactive terminal mode with auto-completion
-- 🎯 Skill management - full lifecycle: upload → review → release, plus get/list/describe/sync
+- 🎯 Skill management - full lifecycle: upload → review → release, plus get/list/describe
 - 🤖 AgentSpec management - full lifecycle: upload → review → release, plus get/list/describe
 - 📝 Configuration management - list, get and set configurations
-- 🔄 Real-time skill synchronization with Nacos
 - 🌐 Namespace support for multi-environment management
 - 📦 Batch operations - upload all skills and agent specs at once
 - 🧾 Structured output - `--output json` on list/describe for scripting
@@ -348,25 +347,6 @@ nacos-cli skill-publish /path/to/skill
 nacos-cli skill-publish --all /path/to/skills/folder
 ```
 
-#### Sync Skill
-
-Real-time synchronization - automatically syncs local skills when they change in Nacos:
-
-```bash
-# Sync single skill (CLI mode only)
-nacos-cli skill-sync skill-creator -s 127.0.0.1:8848 -u nacos -p nacos
-
-# Sync multiple skills
-nacos-cli skill-sync skill-creator skill-analyzer
-
-# Sync all skills
-nacos-cli skill-sync --all
-
-# Press Ctrl+C to stop synchronization
-```
-
-**Note**: `skill-sync` is only available in CLI mode, not in terminal mode.
-
 ### Configuration Management
 
 #### List Configurations
@@ -526,7 +506,6 @@ nacos-cli/
 │   ├── update_skill_scope.go  # skill-scope
 │   ├── update_skill_tags.go   # skill-tags
 │   ├── publish_skill.go       # skill-publish (deprecated wrapper)
-│   ├── sync_skill.go          # skill-sync
 │   ├── list_agentspec.go      # agentspec-list
 │   ├── describe_agentspec.go  # agentspec-describe
 │   ├── get_agentspec.go       # agentspec-get
@@ -543,7 +522,6 @@ nacos-cli/
 │   ├── client/                # Nacos client
 │   ├── skill/                 # Skill service
 │   ├── agentspec/             # AgentSpec service
-│   ├── sync/                  # Sync service
 │   ├── listener/              # Config listener
 │   ├── terminal/              # Interactive terminal implementation
 │   └── help/                  # Help system
@@ -621,9 +599,8 @@ MIT License
 ### v0.2.0 (2026-01-28)
 
 - Rewritten in Go for better performance and portability
-- Added skill management commands (list, get, upload, sync)
+- Added skill management commands (list, get, upload)
 - Added agent spec management commands (list, get, upload)
-- Added real-time skill synchronization with Nacos
 - Added interactive terminal mode with auto-completion
 - Added batch upload support for multiple skills and agent specs
 - Added configuration management commands

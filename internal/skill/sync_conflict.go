@@ -7,39 +7,9 @@ import (
 	"time"
 )
 
-// DetectConflict determines if a skill is in conflict state.
-// Conflict means both local hash and remote MD5 have changed from the synced baseline.
-func DetectConflict(entry SyncSkillEntry, currentLocalHash, currentRemoteMd5 string) bool {
-	localChanged := currentLocalHash != "" && entry.SyncedHash != "" && currentLocalHash != entry.SyncedHash
-	remoteChanged := currentRemoteMd5 != "" && entry.RemoteMd5 != "" && currentRemoteMd5 != entry.RemoteMd5
-	return localChanged && remoteChanged
-}
-
-// BackupSkillDir creates a backup of a skill directory before overwriting.
-// Returns the backup path.
-func BackupSkillDir(agentPath, skillName string) (string, error) {
-	skillDir := filepath.Join(agentPath, skillName)
-	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
-		return "", nil // Nothing to backup
-	}
-
-	backupBaseDir := filepath.Join(agentPath, SyncBackupDir)
-	if err := os.MkdirAll(backupBaseDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create backup directory: %w", err)
-	}
-
-	timestamp := time.Now().Format("20060102T150405")
-	backupDir := filepath.Join(backupBaseDir, fmt.Sprintf("%s-%s", skillName, timestamp))
-
-	if err := copyDir(skillDir, backupDir); err != nil {
-		return "", fmt.Errorf("failed to backup skill directory: %w", err)
-	}
-
-	return backupDir, nil
-}
-
 // ResolveUseRemote resolves a conflict by accepting the remote version.
-// Steps: backup local → re-download from server → update hashes → set status=Synced.
+// Steps: backup local, re-download from server into the central repo, link all
+// agents, update hashes, and set status=Synced.
 func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillService, agents []AgentDir) error {
 	entry, ok := state.Skills[skillName]
 	if !ok {
@@ -50,18 +20,12 @@ func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillSer
 		return fmt.Errorf("no agent directories configured")
 	}
 
-	// Backup in all agent directories
-	for _, agent := range agents {
-		backupPath, err := BackupSkillDir(agent.Path, skillName)
-		if err != nil {
-			return fmt.Errorf("backup failed for agent %s: %w", agent.Name, err)
-		}
-		if backupPath != "" {
-			fmt.Printf("  Backup: %s\n", backupPath)
-		}
+	repoPath, err := EnsureSkillRepo()
+	if err != nil {
+		return err
 	}
 
-	// Re-download to first agent directory (unconditional, no md5)
+	// Re-download unconditionally.
 	result, err := skillService.FetchSkill(skillName, "", state.Label, "")
 	if err != nil {
 		return fmt.Errorf("failed to download skill: %w", err)
@@ -85,12 +49,27 @@ func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillSer
 	} else if !info.IsDir() {
 		return fmt.Errorf("remote skill path is not a directory: %s", sourceDir)
 	}
-	if err := ReplaceSkillInAgents(skillName, sourceDir, agents); err != nil {
-		return fmt.Errorf("failed to apply remote skill: %w", err)
+
+	repoSkillDir := filepath.Join(repoPath, skillName)
+	if _, err := os.Stat(repoSkillDir); err == nil {
+		backupRoot := filepath.Join(repoPath, "..", ".skill-sync-backup")
+		if err := os.MkdirAll(backupRoot, 0755); err != nil {
+			return err
+		}
+		backupDest := filepath.Join(backupRoot, fmt.Sprintf("repo-%s-%s", skillName, time.Now().Format("20060102T150405")))
+		if err := os.Rename(repoSkillDir, backupDest); err != nil {
+			return fmt.Errorf("backup repo skill: %w", err)
+		}
 	}
 
-	// Recompute local hash
-	localHash, err := ComputeDirectoryHash(filepath.Join(agents[0].Path, skillName))
+	if err := ImportAgentSkillToRepo(repoPath, sourceDir, skillName); err != nil {
+		return fmt.Errorf("write remote skill to repo: %w", err)
+	}
+	if _, err := LinkSkillForce(repoPath, skillName, agents, os.Stdout); err != nil {
+		return fmt.Errorf("failed to link remote skill: %w", err)
+	}
+
+	localHash, err := ComputeDirectoryHash(repoSkillDir)
 	if err != nil {
 		return fmt.Errorf("failed to compute hash: %w", err)
 	}
@@ -100,6 +79,7 @@ func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillSer
 	entry.ResolvedVersion = result.ResolvedVersion
 	entry.LocalHash = localHash
 	entry.SyncedHash = localHash
+	entry.ConflictAgents = nil
 	entry.Status = SyncStatusSynced
 	entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	state.Skills[skillName] = entry
@@ -107,19 +87,98 @@ func ResolveUseRemote(state *SyncState, skillName string, skillService *SkillSer
 	return nil
 }
 
-// ResolveUseLocal resolves a conflict by keeping local changes.
-// Steps: acknowledge remote change, set status=LocalChanges (user should upload).
-func ResolveUseLocal(state *SyncState, skillName string) error {
+// ResolveAgentConflictUseRepo overwrites the diverging agents with the repo
+// version, backing up the agent's prior content. The skill's ConflictAgents
+// field is cleared and Status is set to Linked/Synced.
+func ResolveAgentConflictUseRepo(state *SyncState, skillName string) error {
 	entry, ok := state.Skills[skillName]
 	if !ok {
 		return fmt.Errorf("skill %q not found in sync state", skillName)
 	}
-
-	// Keep local as-is, update synced hash to acknowledge we've "seen" the remote
-	// but chosen to keep local. Status becomes LocalChanges so user can upload.
-	entry.Status = SyncStatusLocalChanges
+	repoPath, err := GetSkillRepoPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, skillName)); err != nil {
+		return fmt.Errorf("repo skill missing: %w", err)
+	}
+	if _, err := LinkSkillForce(repoPath, skillName, state.Agents, os.Stdout); err != nil {
+		return err
+	}
+	hash, _ := ComputeDirectoryHash(filepath.Join(repoPath, skillName))
+	entry.LocalHash = hash
+	entry.SyncedHash = hash
+	entry.ConflictAgents = nil
+	if state.Mode == SyncModeNacos {
+		entry.Status = SyncStatusSynced
+	} else {
+		entry.Status = SyncStatusLinked
+	}
 	entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	state.Skills[skillName] = entry
+	return nil
+}
 
+// ResolveAgentConflictUseAgent treats the named agent's content as the new
+// authoritative source: it imports the agent's directory back into the repo,
+// then re-links every other agent (overwriting + backing up the old conflicts).
+func ResolveAgentConflictUseAgent(state *SyncState, skillName, agentName string) error {
+	entry, ok := state.Skills[skillName]
+	if !ok {
+		return fmt.Errorf("skill %q not found in sync state", skillName)
+	}
+	repoPath, err := GetSkillRepoPath()
+	if err != nil {
+		return err
+	}
+	var source *AgentDir
+	for i := range state.Agents {
+		if state.Agents[i].Name == agentName {
+			source = &state.Agents[i]
+			break
+		}
+	}
+	if source == nil {
+		return fmt.Errorf("agent %q not configured", agentName)
+	}
+	agentSkillPath := filepath.Join(source.Path, skillName)
+	info, err := os.Lstat(agentSkillPath)
+	if err != nil {
+		return fmt.Errorf("agent %q does not have skill %q: %w", agentName, skillName, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("agent %q's %q is a symlink; cannot use as source", agentName, skillName)
+	}
+	// Remove the old repo version so ImportAgentSkillToRepo can rewrite it.
+	repoSkillDir := filepath.Join(repoPath, skillName)
+	if _, err := os.Stat(repoSkillDir); err == nil {
+		// Backup the old repo content before overwrite.
+		backupRoot := filepath.Join(repoPath, "..", ".skill-sync-backup")
+		if err := os.MkdirAll(backupRoot, 0755); err != nil {
+			return err
+		}
+		backupDest := filepath.Join(backupRoot, fmt.Sprintf("repo-%s-%s", skillName, time.Now().Format("20060102T150405")))
+		if err := os.Rename(repoSkillDir, backupDest); err != nil {
+			return fmt.Errorf("backup repo skill: %w", err)
+		}
+	}
+	if err := ImportAgentSkillToRepo(repoPath, agentSkillPath, skillName); err != nil {
+		return fmt.Errorf("import from %s: %w", agentName, err)
+	}
+	if _, err := LinkSkillForce(repoPath, skillName, state.Agents, os.Stdout); err != nil {
+		return err
+	}
+	hash, _ := ComputeDirectoryHash(filepath.Join(repoPath, skillName))
+	entry.LocalHash = hash
+	entry.SyncedHash = hash
+	entry.ConflictAgents = nil
+	if state.Mode == SyncModeNacos {
+		// repo now diverges from Nacos; user should upload to publish.
+		entry.Status = SyncStatusLocalChanges
+	} else {
+		entry.Status = SyncStatusLinked
+	}
+	entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	state.Skills[skillName] = entry
 	return nil
 }

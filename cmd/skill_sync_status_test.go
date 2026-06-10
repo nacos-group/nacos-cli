@@ -25,6 +25,8 @@ func TestPrintSyncStatusSummaryIncludesSkillTable(t *testing.T) {
 
 	state := &skill.SyncState{
 		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Profile: "default",
 		Label:   "latest",
 		Agents: []skill.AgentDir{
 			{Name: "codex", Path: primary},
@@ -49,10 +51,11 @@ func TestPrintSyncStatusSummaryIncludesSkillTable(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"Sync list source: local",
+		"Mode: nacos",
+		"Profile: default",
 		"Tracking label: latest",
-		"SKILL  STATUS  VERSION  MD5       UPDATED              NEXT",
-		"demo   Synced  0.0.4    b4fce67c  2026-06-05T05:56:31  -",
+		"SKILL  STATUS  VERSION  AGENTS        NEXT",
+		"demo   Synced  0.0.4    codex,claude  -",
 		"Total: 1 skills",
 		"Agents: [codex claude]",
 	} {
@@ -63,6 +66,24 @@ func TestPrintSyncStatusSummaryIncludesSkillTable(t *testing.T) {
 
 	if strings.Contains(output, "Subscriptions:") {
 		t.Fatalf("output should not include Subscriptions line:\n%s", output)
+	}
+}
+
+func TestNextActionUploadBlockedShowsDraftVersion(t *testing.T) {
+	state := &skill.SyncState{
+		Mode:   skill.SyncModeNacos,
+		Config: skill.SyncConfig{AutoUpload: true},
+	}
+	entry := skill.SyncSkillEntry{
+		Name:                "demo",
+		Status:              skill.SyncStatusUploadBlocked,
+		BlockedDraftVersion: "0.0.2",
+	}
+
+	got := nextAction("demo", entry, state)
+	want := "Nacos draft 0.0.2 exists; review/clear it, auto-upload will retry"
+	if got != want {
+		t.Fatalf("next action = %q, want %q", got, want)
 	}
 }
 

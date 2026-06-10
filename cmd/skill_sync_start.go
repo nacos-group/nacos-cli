@@ -17,17 +17,28 @@ import (
 )
 
 var (
-	syncStartForeground bool
-	syncStartInterval   string
+	syncStartForeground          bool
+	syncStartInterval            string
+	syncStartAll                 bool
+	syncStartUseRemoteOnConflict bool
+	syncStartRefresh             bool
+	syncStartLabel               string
+	syncStartNoAutoUpload        bool
 )
 
 var skillSyncStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start the background sync daemon",
-	Long: `Start the background sync daemon for continuous skill synchronization.
+	Short: "Initial sync and start the background daemon/watcher",
+	Long: `Run the first-time sync and start the background sync process.
 
-The daemon monitors Nacos for version changes on all subscribed skills,
-automatically pulls updates when local state is Synced, and detects conflicts.`,
+In Nacos mode: pulls every subscribed skill from Nacos and links it to the
+agents. Conflicts (local content differs from Nacos) are skipped and reported;
+resolve them with 'skill-sync resolve <skill>'. Use --all to also subscribe
+to every skill on Nacos. Use --use-remote-on-conflict to overwrite local on
+conflict (with backup).
+
+In local mode: links every skill in ~/.nacos-cli/skill-repo to the agents.
+Use --all to also reverse-import unmanaged skills found in agent directories.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// In --foreground mode, this process IS the daemon. Skip the
@@ -41,17 +52,58 @@ automatically pulls updates when local state is Synced, and detects conflicts.`,
 			}
 		}
 
-		// Load state to check subscriptions
+		// Load state
 		state, err := skill.LoadSyncState()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to load sync state: %v\n", err)
 			os.Exit(1)
 		}
 
-		if len(state.Skills) == 0 {
-			fmt.Println("No skills subscribed yet. Use 'skill-sync add' to subscribe.")
-			fmt.Println("The daemon will start and pick up new subscriptions automatically.")
-			fmt.Println()
+		// Mode resolution
+		override := skill.ModeOverrideNone
+		if profileName != "" {
+			override = skill.ModeOverrideNacos
+		}
+		modeRes, err := skill.ResolveSyncMode(state, skill.ResolveModeOptions{
+			Override:    override,
+			ProfileHint: profileName,
+			Interactive: !syncStartForeground,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Ensure agents
+		if err := ensureAgents(state); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Apply --label override
+		if syncStartLabel != "" {
+			state.Label = syncStartLabel
+		}
+		// Apply --no-auto-upload toggle
+		if syncStartNoAutoUpload {
+			state.Config.AutoUpload = false
+		}
+
+		initOpts := startInitOptions{
+			All:                 syncStartAll,
+			UseRemoteOnConflict: syncStartUseRemoteOnConflict,
+			Refresh:             syncStartRefresh,
+		}
+
+		// Initial sync based on mode (first-run logic)
+		if modeRes.Mode == skill.SyncModeLocal {
+			if !runLocalInitialSync(state, initOpts) {
+				return
+			}
+		} else if modeRes.Mode == skill.SyncModeNacos && !syncStartForeground {
+			if !runNacosInitialSync(state, initOpts) {
+				return
+			}
 		}
 
 		// Parse interval
@@ -150,6 +202,12 @@ func syncPollOnce(skillService *skill.SkillService) {
 		return
 	}
 
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[%s] Error: failed to ensure skill repo: %v\n", timeNow(), err)
+		return
+	}
+
 	changed := false
 
 	for name, entry := range state.Skills {
@@ -207,7 +265,12 @@ func syncPollOnce(skillService *skill.SkillService) {
 				continue
 			}
 
-			if localChanged {
+			if shouldProtectLocalFromRemote(entry.Status) {
+				cleanup()
+				entry = keepLocalAfterRemoteUpdate(entry, preLocalHash, result)
+				fmt.Printf("[%s] Remote update pending: %s (kept %s)\n",
+					timeNow(), name, entry.Status.DisplayString())
+			} else if localChanged {
 				// Conflict: both sides changed before pull
 				cleanup()
 				entry.RemoteMd5 = result.Md5
@@ -218,8 +281,8 @@ func syncPollOnce(skillService *skill.SkillService) {
 				fmt.Printf("[%s] Conflict: %s (local modified in %s + remote updated)\n",
 					timeNow(), name, strings.Join(dirtyAgents, ", "))
 			} else {
-				// Safe to auto-pull: replace every agent directory from the staged copy.
-				if err := skill.ReplaceSkillInAgents(name, sourceDir, state.Agents); err != nil {
+				// Safe to auto-pull: update the central repo, then link agents to it.
+				if err := applyRemoteUpdateToRepoAndAgents(repoPath, name, sourceDir, state.Agents); err != nil {
 					cleanup()
 					fmt.Fprintf(os.Stderr, "[%s] Error applying %s: %v\n", timeNow(), name, err)
 					continue
@@ -247,11 +310,52 @@ func syncPollOnce(skillService *skill.SkillService) {
 				changed = true
 			}
 
-			// Check lifecycle for "uploaded" skills (Phase 3)
-			if entry.Status == skill.SyncStatusUploaded {
-				if skill.TryAutoTransitionToSynced(state, name, skillService) {
+		}
+
+		// Check lifecycle for uploaded skills after remote polling. This also
+		// handles the case where latest moved while local Uploaded content is
+		// protected from auto-pull.
+		if state.Skills[name].Status == skill.SyncStatusUploaded {
+			if skill.TryAutoTransitionToSynced(state, name, skillService) {
+				if state.Skills[name].Status == skill.SyncStatusSynced {
 					fmt.Printf("[%s] Published: %s (auto-synced)\n", timeNow(), name)
+				}
+				changed = true
+			}
+		}
+
+		// Auto-upload evaluation: only when in Nacos mode and a repo path exists
+		if state.Mode == skill.SyncModeNacos && repoPath != "" {
+			current := state.Skills[name]
+			eval, err := skill.EvaluateAutoUpload(state, &current, repoPath, skillService)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] auto-upload eval error for %s: %v\n", timeNow(), name, err)
+				continue
+			}
+			switch eval.Decision {
+			case skill.AutoUploadShouldUpload:
+				fmt.Printf("[%s] Auto-upload: %s (uploading...)\n", timeNow(), name)
+				if err := skill.PerformAutoUpload(state, &current, repoPath, skillService, eval.CurrentHash); err != nil {
+					fmt.Fprintf(os.Stderr, "[%s] auto-upload failed for %s: %v\n", timeNow(), name, err)
+					continue
+				}
+				changed = true
+			case skill.AutoUploadDebouncing:
+				// debounce: persist pending hash but don't yet upload
+				state.Skills[name] = current
+				changed = true
+			case skill.AutoUploadBlockedReviewing, skill.AutoUploadBlockedForeignDraft:
+				blockedChanged := current.Status != skill.SyncStatusUploadBlocked ||
+					current.BlockedDraftVersion != eval.RemoteEditing ||
+					current.BlockedReviewVersion != eval.RemoteReviewing
+				if blockedChanged {
+					current.Status = skill.SyncStatusUploadBlocked
+					current.BlockedDraftVersion = eval.RemoteEditing
+					current.BlockedReviewVersion = eval.RemoteReviewing
+					current.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					state.Skills[name] = current
 					changed = true
+					fmt.Printf("[%s] Upload blocked: %s (%s)\n", timeNow(), name, eval.Reason)
 				}
 			}
 		}
@@ -262,6 +366,39 @@ func syncPollOnce(skillService *skill.SkillService) {
 			fmt.Fprintf(os.Stderr, "[%s] Error: failed to save state: %v\n", timeNow(), err)
 		}
 	}
+}
+
+func shouldProtectLocalFromRemote(status skill.SyncStatus) bool {
+	return status == skill.SyncStatusLocalChanges ||
+		status == skill.SyncStatusUploaded ||
+		status == skill.SyncStatusUploadBlocked
+}
+
+func keepLocalAfterRemoteUpdate(entry skill.SyncSkillEntry, localHash string, result *skill.SkillQueryResult) skill.SyncSkillEntry {
+	if result.Md5 != "" {
+		entry.RemoteMd5 = result.Md5
+	}
+	if result.ResolvedVersion != "" {
+		entry.ResolvedVersion = result.ResolvedVersion
+	}
+	if localHash != "" {
+		entry.LocalHash = localHash
+	}
+	entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return entry
+}
+
+func applyRemoteUpdateToRepoAndAgents(repoPath, name, sourceDir string, agents []skill.AgentDir) error {
+	if err := backupRepoDir(repoPath, name); err != nil {
+		return fmt.Errorf("backup repo dir: %w", err)
+	}
+	if err := skill.ImportAgentSkillToRepo(repoPath, sourceDir, name); err != nil {
+		return fmt.Errorf("write remote skill to repo: %w", err)
+	}
+	if _, err := skill.LinkSkillForce(repoPath, name, agents, nil); err != nil {
+		return fmt.Errorf("link remote skill: %w", err)
+	}
+	return nil
 }
 
 func detectLocalChanges(skillName string, agents []skill.AgentDir, syncedHash string) (bool, string, []string) {
@@ -401,5 +538,10 @@ func startSyncDaemonBackground() (int, string, error) {
 func init() {
 	skillSyncStartCmd.Flags().BoolVar(&syncStartForeground, "foreground", false, "Run in foreground instead of background")
 	skillSyncStartCmd.Flags().StringVar(&syncStartInterval, "interval", "30s", "Poll interval (e.g. 10s, 1m)")
+	skillSyncStartCmd.Flags().BoolVar(&syncStartAll, "all", false, "Pull every available skill (Nacos: namespace-wide; Local: also reverse-import unmanaged)")
+	skillSyncStartCmd.Flags().BoolVar(&syncStartUseRemoteOnConflict, "use-remote-on-conflict", false, "Overwrite local content with remote on conflict (backup first)")
+	skillSyncStartCmd.Flags().BoolVar(&syncStartRefresh, "refresh", false, "Force re-pull every subscribed skill (alias for treating local as out-of-date)")
+	skillSyncStartCmd.Flags().StringVar(&syncStartLabel, "label", "", "Override the tracking label for this invocation (Nacos mode only)")
+	skillSyncStartCmd.Flags().BoolVar(&syncStartNoAutoUpload, "no-auto-upload", false, "Disable daemon-driven auto-upload")
 	skillSyncCmd.AddCommand(skillSyncStartCmd)
 }

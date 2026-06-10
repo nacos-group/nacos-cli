@@ -42,6 +42,8 @@ func TestSyncPollOnceAppliesRemoteUpdateWhenLocalClean(t *testing.T) {
 	assertFileMissing(t, filepath.Join(primary, "demo", "stale.txt"))
 	assertFileContent(t, filepath.Join(secondary, "demo", "SKILL.md"), "new")
 	assertFileMissing(t, filepath.Join(secondary, "demo", "stale.txt"))
+	assertSkillSymlink(t, primary, "demo")
+	assertSkillSymlink(t, secondary, "demo")
 
 	state, err := skill.LoadSyncState()
 	if err != nil {
@@ -56,6 +58,134 @@ func TestSyncPollOnceAppliesRemoteUpdateWhenLocalClean(t *testing.T) {
 	}
 	if entry.SyncedHash == syncedHash {
 		t.Fatal("synced hash did not update")
+	}
+}
+
+func TestSyncPollOnceKeepsLocalChangesWhenRemoteUpdates(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "local chosen")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	secondary := filepath.Join(t.TempDir(), "secondary")
+	if err := skill.LinkSkillToAgent(repoPath, "demo", primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.LinkSkillToAgent(repoPath, "demo", secondary); err != nil {
+		t.Fatal(err)
+	}
+
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: false},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+			{Name: "secondary", Path: secondary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:      "demo",
+				Label:     "latest",
+				RemoteMd5: "m1",
+				LocalHash: localHash,
+				Status:    skill.SyncStatusLocalChanges,
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	server := newSkillQueryServer(t, "m1", "m2", "v2", map[string]string{
+		"demo/SKILL.md": "remote update",
+	})
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	assertFileContent(t, filepath.Join(repoPath, "demo", "SKILL.md"), "local chosen")
+	assertFileContent(t, filepath.Join(primary, "demo", "SKILL.md"), "local chosen")
+	assertFileContent(t, filepath.Join(secondary, "demo", "SKILL.md"), "local chosen")
+	assertSkillSymlink(t, primary, "demo")
+	assertSkillSymlink(t, secondary, "demo")
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Skills["demo"]
+	if entry.Status != skill.SyncStatusLocalChanges {
+		t.Fatalf("status = %s, want local changes", entry.Status)
+	}
+	if entry.RemoteMd5 != "m2" || entry.ResolvedVersion != "v2" {
+		t.Fatalf("remote state = md5:%s version:%s, want m2/v2", entry.RemoteMd5, entry.ResolvedVersion)
+	}
+}
+
+func TestInitialNacosPullSkipsLocalChanges(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "local chosen")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	secondary := filepath.Join(t.TempDir(), "secondary")
+	if err := skill.LinkSkillToAgent(repoPath, "demo", primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.LinkSkillToAgent(repoPath, "demo", secondary); err != nil {
+		t.Fatal(err)
+	}
+
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: true},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+			{Name: "secondary", Path: secondary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:      "demo",
+				Label:     "latest",
+				RemoteMd5: "m1",
+				LocalHash: localHash,
+				Status:    skill.SyncStatusLocalChanges,
+			},
+		},
+	}
+
+	pullAndLinkOne(state, repoPath, "demo", nil, startInitOptions{}, nil)
+
+	assertFileContent(t, filepath.Join(repoPath, "demo", "SKILL.md"), "local chosen")
+	assertFileContent(t, filepath.Join(primary, "demo", "SKILL.md"), "local chosen")
+	assertFileContent(t, filepath.Join(secondary, "demo", "SKILL.md"), "local chosen")
+	assertSkillSymlink(t, primary, "demo")
+	assertSkillSymlink(t, secondary, "demo")
+	if got := state.Skills["demo"].Status; got != skill.SyncStatusLocalChanges {
+		t.Fatalf("status = %s, want local changes", got)
 	}
 }
 
@@ -301,5 +431,17 @@ func assertFileMissing(t *testing.T, path string) {
 		t.Fatalf("%s exists, want missing", path)
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
+	}
+}
+
+func assertSkillSymlink(t *testing.T, agentPath, skillName string) {
+	t.Helper()
+	skillPath := filepath.Join(agentPath, skillName)
+	info, err := os.Lstat(skillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s should be a symlink, got %v", skillPath, info.Mode())
 	}
 }

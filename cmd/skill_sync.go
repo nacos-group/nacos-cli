@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/nacos-group/nacos-cli/internal/skill"
@@ -13,133 +12,96 @@ import (
 var skillSyncCmd = &cobra.Command{
 	Use:   "skill-sync",
 	Short: "Manage skill synchronization across agent directories",
-	Long: `Unified skill synchronization management.
+	Long: `Skill synchronization between Nacos (or a local repo) and one or more
+agent skill directories.
 
 Subcommands:
-  add         Subscribe to a skill and perform initial pull
-  remove      Unsubscribe from a skill (keeps local files)
-  status      Show sync state of all subscribed skills
-  resolve     Resolve conflicts between local and remote
-  start       Start the background sync daemon
-  stop        Stop the background sync daemon
-  set-label   Set the global tracking label
-  agent       Manage agent directories`,
+  add         Subscribe to a skill and link it to all agents
+  remove      Unsubscribe and unlink from all agents
+  start       Initial sync (default: subscribed only) and start the daemon/watcher
+  stop        Stop the background daemon/watcher
+  status      Show sync state and per-agent linkage
+  resolve     Resolve a conflict (repo vs Nacos, or repo vs agent)
+  agent       Manage agent directories
+  set-label   Set the global tracking label for Nacos mode`,
 }
 
 // --- skill-sync add ---
 
+var (
+	addOptFromAgent   string
+	addOptUpload      bool
+	addOptDryRun      bool
+	addOptNonInteract bool
+)
+
 var skillSyncAddCmd = &cobra.Command{
 	Use:   "add [skill...]",
-	Short: "Subscribe to skills and perform initial pull",
-	Long: `Subscribe to one or more skills and perform the initial download.
+	Short: "Subscribe to skills and link them to all agents",
+	Long: `Add one or more skills to the subscription list and link them to every agent.
 
-This command:
-  - Adds skills to the local subscription list
-  - Auto-discovers agent directories on first run
-  - Downloads the skill (using the global tracking label) to all agent dirs
-  - Does NOT start the background sync daemon (use 'skill-sync start' for that)`,
+Behavior is safe by default: any agent that already holds a different version
+of the skill is left untouched and reported as a conflict (resolve later with
+'skill-sync resolve <skill>').
+
+Nacos mode:
+  - If the skill exists on Nacos and local content does not conflict, pull it
+    into the central repo and link.
+  - If local content also exists, choose Nacos or one local agent version.
+  - Choosing a local version records Local changes; auto-upload decides whether
+    it is uploaded as draft.
+
+Local mode:
+  - If the central repo has the skill, link it to all agents.
+  - Otherwise reverse-import from an agent (single match auto-imports;
+    multiple different versions trigger a source picker, override with --from).
+
+Non-interactive:
+  - Use --non-interactive to disable prompts.
+  - Nacos mode defaults to Nacos when a Nacos version is available.
+  - Use --from <agent> or --from latest to choose a local source.
+  - Ambiguous local-only sources fail instead of being skipped silently.`,
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		skillNames := args
-
-		// Load sync state
 		state, err := skill.LoadSyncState()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to load sync state: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Auto-discover agents on first run
-		if len(state.Agents) == 0 {
-			discovered, err := skill.DiscoverAgents()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: agent discovery failed: %v\n", err)
-			}
-			if len(discovered) > 0 {
-				state.Agents = discovered
-				fmt.Println("Detected agents:")
-				for _, agent := range discovered {
-					fmt.Printf("  %-10s %s\n", agent.Name, agent.Path)
-				}
-				fmt.Println()
-			} else {
-				// Create default ~/.skills directory
-				homeDir, _ := os.UserHomeDir()
-				defaultPath := filepath.Join(homeDir, ".skills")
-				if err := os.MkdirAll(defaultPath, 0755); err == nil {
-					state.Agents = []skill.AgentDir{{Name: "default", Path: defaultPath, AutoFound: true}}
-					fmt.Printf("Created default agent directory: %s\n\n", defaultPath)
-				}
-			}
+		override := skill.ModeOverrideNone
+		profileHint := ""
+		if profileName != "" {
+			override = skill.ModeOverrideNacos
+			profileHint = profileName
 		}
 
-		if len(state.Agents) == 0 {
-			fmt.Fprintf(os.Stderr, "Error: no agent directories found. Use 'skill-sync agent add' to add one.\n")
+		res, err := skill.ResolveSyncMode(state, skill.ResolveModeOptions{
+			Override:    override,
+			ProfileHint: profileHint,
+			Interactive: !addOptNonInteract,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to resolve mode: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Tracking label: %s\n", state.Label)
-
-		// Create Nacos client and skill service
-		nacosClient := mustNewNacosClient()
-		skillService := skill.NewSkillService(nacosClient)
-
-		var addedCount int
-		for _, skillName := range skillNames {
-			// Check if already subscribed
-			if existing, ok := state.Skills[skillName]; ok {
-				fmt.Printf("Skill %q already subscribed (version: %s, status: %s)\n",
-					skillName, existing.ResolvedVersion, existing.Status.DisplayString())
-				continue
-			}
-
-			fmt.Printf("Adding subscription: %s...\n", skillName)
-
-			// Download to first agent directory
-			primaryDir := state.Agents[0].Path
-			result, err := skillService.QuerySkill(skillName, primaryDir, "", state.Label, "")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: failed to download skill %q: %v\n", skillName, err)
-				os.Exit(1)
-			}
-			if result.Deleted {
-				fmt.Fprintf(os.Stderr, "Error: skill %q not found on server\n", skillName)
-				os.Exit(1)
-			}
-
-			// Copy to remaining agents
-			sourceDir := filepath.Join(primaryDir, skillName)
-			if len(state.Agents) > 1 {
-				if err := skill.EnsureSkillInAllAgents(skillName, sourceDir, state.Agents[1:]); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to sync to all agents: %v\n", err)
-				}
-			}
-
-			// Compute content hash
-			localHash, err := skill.ComputeDirectoryHash(sourceDir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to compute hash: %v\n", err)
-			}
-
-			// Add to state
-			state.AddSkill(skillName, state.Label, result.ResolvedVersion, result.Md5, localHash)
-			addedCount++
-
-			fmt.Printf("  Subscribed: %s (version: %s)\n", skillName, result.ResolvedVersion)
-			fmt.Printf("  Synced to %d agent(s)\n", len(state.Agents))
+		opts := addOptions{
+			fromAgent:   addOptFromAgent,
+			dryRun:      addOptDryRun,
+			nonInteract: addOptNonInteract,
 		}
 
-		// Save state
-		if err := skill.SaveSyncState(state); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to save sync state: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Hint about starting daemon (only when new skills were added)
-		if addedCount > 0 {
-			running, _ := skill.IsSyncDaemonRunning()
-			if !running {
-				fmt.Printf("\nNote: sync daemon is not running. Use 'nacos-cli skill-sync start' to enable background sync.\n")
+		switch res.Mode {
+		case skill.SyncModeLocal:
+			if err := runSkillSyncAddLocal(args, opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		case skill.SyncModeNacos:
+			if err := runSkillSyncAddNacos(args, opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
 			}
 		}
 	},
@@ -147,9 +109,11 @@ This command:
 
 // --- skill-sync remove ---
 
+var removeOptKeepSource bool
+
 var skillSyncRemoveCmd = &cobra.Command{
 	Use:   "remove [skill...]",
-	Short: "Unsubscribe from skills (keeps local files)",
+	Short: "Unsubscribe from skills and unlink them from all agents",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		state, err := skill.LoadSyncState()
@@ -160,13 +124,19 @@ var skillSyncRemoveCmd = &cobra.Command{
 
 		for _, skillName := range args {
 			if _, ok := state.Skills[skillName]; !ok {
-				fmt.Printf("Skill %q not found in subscriptions, skipping.\n", skillName)
+				fmt.Printf("Skill %q not in subscriptions, skipping.\n", skillName)
 				continue
 			}
-
+			fmt.Printf("Removing %s...\n", skillName)
+			if err := skill.UnlinkSkillFromAllAgents(skillName, state.Agents, os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			}
 			state.RemoveSkill(skillName)
-			fmt.Printf("Removed subscription: %s\n", skillName)
-			fmt.Printf("  Note: local files are preserved. Delete manually if needed.\n")
+			if removeOptKeepSource {
+				fmt.Printf("Unsubscribed: %s (repo source preserved)\n", skillName)
+			} else {
+				fmt.Printf("Unsubscribed: %s\n", skillName)
+			}
 		}
 
 		if err := skill.SaveSyncState(state); err != nil {
@@ -203,81 +173,22 @@ var skillSyncSetLabelCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		fmt.Printf("Tracking label: %s → %s\n", oldLabel, label)
+		fmt.Printf("Tracking label: %s -> %s\n", oldLabel, label)
 		fmt.Printf("All subscribed skills will now track the '%s' label.\n", label)
 	},
 }
 
-// --- skill-sync pull ---
-
-var skillSyncPullCmd = &cobra.Command{
-	Use:   "pull [skill]",
-	Short: "Manually pull latest version for a skill",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		skillName := args[0]
-
-		state, err := skill.LoadSyncState()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to load sync state: %v\n", err)
-			os.Exit(1)
-		}
-
-		entry, ok := state.Skills[skillName]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Error: skill %q not found in subscriptions\n", skillName)
-			os.Exit(1)
-		}
-
-		if len(state.Agents) == 0 {
-			fmt.Fprintf(os.Stderr, "Error: no agent directories configured\n")
-			os.Exit(1)
-		}
-
-		nacosClient := mustNewNacosClient()
-		skillService := skill.NewSkillService(nacosClient)
-
-		primaryDir := state.Agents[0].Path
-		result, err := skillService.QuerySkill(skillName, primaryDir, "", state.Label, "")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to pull skill %q: %v\n", skillName, err)
-			os.Exit(1)
-		}
-		if result.Deleted {
-			fmt.Fprintf(os.Stderr, "Error: skill %q not found on server\n", skillName)
-			os.Exit(1)
-		}
-
-		// Copy to remaining agents
-		sourceDir := filepath.Join(primaryDir, skillName)
-		if len(state.Agents) > 1 {
-			if err := skill.EnsureSkillInAllAgents(skillName, sourceDir, state.Agents[1:]); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to sync to all agents: %v\n", err)
-			}
-		}
-
-		// Compute hash and update state
-		localHash, _ := skill.ComputeDirectoryHash(sourceDir)
-		entry.RemoteMd5 = result.Md5
-		entry.ResolvedVersion = result.ResolvedVersion
-		entry.LocalHash = localHash
-		entry.SyncedHash = localHash
-		entry.Status = skill.SyncStatusSynced
-		state.Skills[skillName] = entry
-
-		if err := skill.SaveSyncState(state); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to save sync state: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Pulled: %s (version: %s)\n", skillName, result.ResolvedVersion)
-	},
-}
-
 func init() {
+	skillSyncAddCmd.Flags().StringVar(&addOptFromAgent, "from", "", "Reverse-import source agent name (or 'latest')")
+	skillSyncAddCmd.Flags().BoolVar(&addOptUpload, "upload", false, "Deprecated: auto-upload controls draft uploads")
+	_ = skillSyncAddCmd.Flags().MarkHidden("upload")
+	skillSyncAddCmd.Flags().BoolVar(&addOptDryRun, "dry-run", false, "Show planned actions without executing")
+	skillSyncAddCmd.Flags().BoolVar(&addOptNonInteract, "non-interactive", false, "Run without prompts")
+
+	skillSyncRemoveCmd.Flags().BoolVar(&removeOptKeepSource, "keep-source", false, "Keep the skill in the central repo after unsubscribing")
+
 	skillSyncCmd.AddCommand(skillSyncAddCmd)
 	skillSyncCmd.AddCommand(skillSyncRemoveCmd)
 	skillSyncCmd.AddCommand(skillSyncSetLabelCmd)
-	skillSyncCmd.AddCommand(skillSyncPullCmd)
 	rootCmd.AddCommand(skillSyncCmd)
 }

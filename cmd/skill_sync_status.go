@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/nacos-group/nacos-cli/internal/skill"
@@ -34,8 +35,25 @@ var skillSyncStatusCmd = &cobra.Command{
 }
 
 func printSyncStatusSummary(state *skill.SyncState) {
-	fmt.Printf("Sync list source: local\n")
-	fmt.Printf("Tracking label: %s\n", state.Label)
+	mode := state.Mode
+	if mode == skill.SyncModeUnset {
+		mode = "(unset)"
+	}
+	fmt.Printf("Mode: %s\n", mode)
+	if state.Profile != "" {
+		fmt.Printf("Profile: %s\n", state.Profile)
+	}
+	if state.Repo != "" {
+		fmt.Printf("Repository: %s\n", state.Repo)
+	}
+	if state.Mode == skill.SyncModeNacos {
+		fmt.Printf("Tracking label: %s\n", state.Label)
+		if state.Config.AutoUpload {
+			fmt.Printf("Auto-upload: enabled\n")
+		} else {
+			fmt.Printf("Auto-upload: disabled\n")
+		}
+	}
 	printSyncDaemonStatus()
 	fmt.Println()
 
@@ -57,39 +75,34 @@ func printSyncStatusSummary(state *skill.SyncState) {
 
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "SKILL\tSTATUS\tVERSION\tMD5\tUPDATED\tNEXT\n")
-	fmt.Fprintf(w, "-----\t------\t-------\t---\t-------\t----\n")
 
-	for _, name := range names {
-		entry := state.Skills[name]
-
-		version := entry.ResolvedVersion
-		if version == "" {
-			version = "-"
+	if state.Mode == skill.SyncModeLocal {
+		fmt.Fprintf(w, "SKILL\tSTATUS\tAGENTS\tNEXT\n")
+		fmt.Fprintf(w, "-----\t------\t------\t----\n")
+		for _, name := range names {
+			entry := state.Skills[name]
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				name, entry.Status.DisplayString(),
+				agentsDisplay(name, entry, state),
+				nextAction(name, entry, state))
 		}
-
-		md5Display := shortMd5(entry.RemoteMd5)
-		if md5Display == "" {
-			md5Display = "-"
-		}
-
-		updatedAt := entry.UpdatedAt
-		if updatedAt != "" {
-			if idx := len(updatedAt); idx > 19 {
-				updatedAt = updatedAt[:19]
+	} else {
+		fmt.Fprintf(w, "SKILL\tSTATUS\tVERSION\tAGENTS\tNEXT\n")
+		fmt.Fprintf(w, "-----\t------\t-------\t------\t----\n")
+		for _, name := range names {
+			entry := state.Skills[name]
+			version := entry.ResolvedVersion
+			if version == "" {
+				version = "-"
 			}
-		} else {
-			updatedAt = "-"
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				name, entry.Status.DisplayString(), version,
+				agentsDisplay(name, entry, state),
+				nextAction(name, entry, state))
 		}
-
-		next := nextAction(name, entry, state)
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			name, entry.Status.DisplayString(), version, md5Display, updatedAt, next)
 	}
 	w.Flush()
 
-	// Summary
 	fmt.Printf("\nTotal: %d skills\n", len(state.Skills))
 	if len(state.Agents) > 0 {
 		agentNames := make([]string, 0, len(state.Agents))
@@ -98,6 +111,24 @@ func printSyncStatusSummary(state *skill.SyncState) {
 		}
 		fmt.Printf("Agents: %v\n", agentNames)
 	}
+}
+
+// agentsDisplay returns a comma-joined list of agents that have the skill linked,
+// noting any agent in conflict with the central repo as `name≠`.
+func agentsDisplay(skillName string, entry skill.SyncSkillEntry, state *skill.SyncState) string {
+	conflict := make(map[string]bool, len(entry.ConflictAgents))
+	for _, name := range entry.ConflictAgents {
+		conflict[name] = true
+	}
+	parts := make([]string, 0, len(state.Agents))
+	for _, a := range state.Agents {
+		if conflict[a.Name] {
+			parts = append(parts, a.Name+"\u2260")
+		} else {
+			parts = append(parts, a.Name)
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 func printSyncDaemonStatus() {
@@ -145,12 +176,23 @@ func nextAction(name string, entry skill.SyncSkillEntry, state *skill.SyncState)
 	case skill.SyncStatusSynced:
 		return "-"
 	case skill.SyncStatusLocalChanges:
+		if state.Mode == skill.SyncModeNacos && state.Config.AutoUpload {
+			return "auto-upload pending"
+		}
 		if len(state.Agents) > 0 {
 			return fmt.Sprintf("skill-upload %s", filepath.Join(state.Agents[0].Path, name))
 		}
 		return "skill-upload"
 	case skill.SyncStatusUploaded:
 		return "waiting publish"
+	case skill.SyncStatusUploadBlocked:
+		if entry.BlockedDraftVersion != "" {
+			return fmt.Sprintf("Nacos draft %s exists; review/clear it, auto-upload will retry", entry.BlockedDraftVersion)
+		}
+		if entry.BlockedReviewVersion != "" {
+			return fmt.Sprintf("Nacos reviewing %s exists; wait/review it, auto-upload will retry", entry.BlockedReviewVersion)
+		}
+		return "Nacos draft exists; review/clear it, auto-upload will retry"
 	case skill.SyncStatusRemoteChanges:
 		return "auto-pull pending"
 	case skill.SyncStatusConflict:

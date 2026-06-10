@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nacos-group/nacos-cli/internal/config"
@@ -13,13 +14,25 @@ const (
 	// SyncStateFile is the name of the global sync state file.
 	SyncStateFile = "skill-sync-state.json"
 	// SyncStateVersion is the current schema version.
-	SyncStateVersion = 1
+	SyncStateVersion = 2
 	// SyncDaemonPIDFile records the sync daemon process ID.
 	SyncDaemonPIDFile = "skill-sync.pid"
 	// SyncDaemonLogFile records the sync daemon log output.
 	SyncDaemonLogFile = "skill-sync.log"
 	// SyncBackupDir is the directory name for conflict backups inside agent dirs.
 	SyncBackupDir = ".skill-sync-backup"
+)
+
+// SyncMode represents which kind of source the daemon synchronizes from.
+type SyncMode string
+
+const (
+	// SyncModeUnset indicates the user has not chosen a mode yet.
+	SyncModeUnset SyncMode = ""
+	// SyncModeLocal pushes content from the local skill repo to agents.
+	SyncModeLocal SyncMode = "local"
+	// SyncModeNacos pulls content from a Nacos profile to the local repo and agents.
+	SyncModeNacos SyncMode = "nacos"
 )
 
 // SyncStatus represents the synchronization state of a skill.
@@ -31,6 +44,9 @@ const (
 	SyncStatusUploaded      SyncStatus = "uploaded"
 	SyncStatusRemoteChanges SyncStatus = "remote_changes"
 	SyncStatusConflict      SyncStatus = "conflict"
+	SyncStatusLinked        SyncStatus = "linked"
+	SyncStatusUploadBlocked SyncStatus = "upload_blocked"
+	SyncStatusPending       SyncStatus = "pending"
 )
 
 // DisplayString returns a human-friendly label for the sync status.
@@ -46,6 +62,12 @@ func (s SyncStatus) DisplayString() string {
 		return "Remote changes"
 	case SyncStatusConflict:
 		return "Conflict"
+	case SyncStatusLinked:
+		return "Linked"
+	case SyncStatusUploadBlocked:
+		return "Upload blocked"
+	case SyncStatusPending:
+		return "Pending"
 	default:
 		return string(s)
 	}
@@ -68,15 +90,53 @@ type SyncSkillEntry struct {
 	SyncedHash      string     `json:"syncedHash,omitempty"`
 	Status          SyncStatus `json:"status"`
 	UpdatedAt       string     `json:"updatedAt"`
+	// LastUploadedMd5 is the md5 returned by Nacos after our last upload.
+	// Used to determine if a remote draft is still ours and safe to overwrite.
+	LastUploadedMd5 string `json:"lastUploadedMd5,omitempty"`
+	// LastUploadedAt records when this skill was last uploaded by us.
+	LastUploadedAt string `json:"lastUploadedAt,omitempty"`
+	// UploadedVersion records the draft version produced by the last auto/manual
+	// upload. The daemon watches this exact version until it becomes online.
+	UploadedVersion string `json:"uploadedVersion,omitempty"`
+	// UploadedMd5 records the md5 of UploadedVersion at upload time, so the
+	// daemon can verify that the published content is still the uploaded content.
+	UploadedMd5 string `json:"uploadedMd5,omitempty"`
+	// PendingChangeHash records the local hash that triggered debounce.
+	// When two consecutive polls report the same hash, the upload fires.
+	PendingChangeHash string `json:"pendingChangeHash,omitempty"`
+	// AutoUploadDisabled overrides the global auto-upload setting for this skill.
+	AutoUploadDisabled bool `json:"autoUploadDisabled,omitempty"`
+	// BlockedDraftVersion records the Nacos editing draft that blocked the last
+	// auto-upload attempt.
+	BlockedDraftVersion string `json:"blockedDraftVersion,omitempty"`
+	// BlockedReviewVersion records the Nacos reviewing version that blocked the
+	// last auto-upload attempt.
+	BlockedReviewVersion string `json:"blockedReviewVersion,omitempty"`
+	// ConflictAgents lists agents whose real directory differs from the central
+	// repo. The skill's Status is set to Conflict when this is non-empty.
+	ConflictAgents []string `json:"conflictAgents,omitempty"`
+	// ExcludedAgents is retained for backward compatibility with older state
+	// files; the current CLI no longer writes to it.
+	ExcludedAgents []string `json:"excludedAgents,omitempty"`
+}
+
+// SyncConfig holds global behavior switches for the sync daemon.
+type SyncConfig struct {
+	// AutoUpload enables daemon-driven upload when local changes are detected.
+	AutoUpload bool `json:"autoUpload"`
 }
 
 // SyncState is the top-level global sync state structure.
 type SyncState struct {
-	Version   int                        `json:"version"`
-	Label     string                     `json:"label"`
-	Agents    []AgentDir                 `json:"agents"`
-	Skills    map[string]SyncSkillEntry  `json:"skills"`
-	UpdatedAt string                     `json:"updatedAt"`
+	Version   int                       `json:"version"`
+	Mode      SyncMode                  `json:"mode"`
+	Profile   string                    `json:"profile,omitempty"`
+	Repo      string                    `json:"repo,omitempty"`
+	Label     string                    `json:"label"`
+	Config    SyncConfig                `json:"config"`
+	Agents    []AgentDir                `json:"agents"`
+	Skills    map[string]SyncSkillEntry `json:"skills"`
+	UpdatedAt string                    `json:"updatedAt"`
 }
 
 // GetSyncStatePath returns the path to the global sync state file.
@@ -117,12 +177,7 @@ func LoadSyncState() (*SyncState, error) {
 	data, err := os.ReadFile(statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &SyncState{
-				Version: SyncStateVersion,
-				Label:   "latest",
-				Agents:  []AgentDir{},
-				Skills:  make(map[string]SyncSkillEntry),
-			}, nil
+			return defaultSyncState(), nil
 		}
 		return nil, err
 	}
@@ -141,8 +196,26 @@ func LoadSyncState() (*SyncState, error) {
 	if state.Label == "" {
 		state.Label = "latest"
 	}
+	if !strings.Contains(string(data), "\"autoUpload\"") {
+		state.Config.AutoUpload = true
+	}
+	if state.Version == 0 {
+		state.Version = SyncStateVersion
+	}
 
 	return &state, nil
+}
+
+// defaultSyncState returns a freshly initialized state with safe defaults.
+func defaultSyncState() *SyncState {
+	return &SyncState{
+		Version: SyncStateVersion,
+		Mode:    SyncModeUnset,
+		Label:   "latest",
+		Config:  SyncConfig{AutoUpload: true},
+		Agents:  []AgentDir{},
+		Skills:  make(map[string]SyncSkillEntry),
+	}
 }
 
 // SaveSyncState writes the sync state to disk.
@@ -168,6 +241,11 @@ func SaveSyncState(state *SyncState) error {
 
 // AddSkill adds or updates a skill entry in the sync state.
 func (s *SyncState) AddSkill(name, label, resolvedVersion, remoteMd5, localHash string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	status := SyncStatusSynced
+	if s.Mode == SyncModeLocal {
+		status = SyncStatusLinked
+	}
 	s.Skills[name] = SyncSkillEntry{
 		Name:            name,
 		Label:           label,
@@ -175,8 +253,8 @@ func (s *SyncState) AddSkill(name, label, resolvedVersion, remoteMd5, localHash 
 		RemoteMd5:       remoteMd5,
 		LocalHash:       localHash,
 		SyncedHash:      localHash,
-		Status:          SyncStatusSynced,
-		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+		Status:          status,
+		UpdatedAt:       now,
 	}
 }
 

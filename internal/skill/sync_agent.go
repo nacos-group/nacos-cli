@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // WellKnownAgents defines the default agent skill directories to auto-discover.
@@ -17,6 +16,7 @@ var WellKnownAgents = []struct {
 	{Name: "codex", Path: ".codex/skills"},
 	{Name: "claude", Path: ".claude/skills"},
 	{Name: "qoder", Path: ".qoder/skills"},
+	{Name: "agents", Path: ".agents/skills"},
 	{Name: "default", Path: ".skills"},
 }
 
@@ -101,99 +101,6 @@ func (s *SyncState) RemoveAgent(name string) error {
 		}
 	}
 	return fmt.Errorf("agent %q not found", name)
-}
-
-// EnsureSkillInAllAgents copies a skill directory from sourceDir to all agent directories.
-// sourceDir should be the directory containing the skill (e.g., ~/.skills/pdf).
-func EnsureSkillInAllAgents(skillName, sourceDir string, agents []AgentDir) error {
-	for _, agent := range agents {
-		destDir := filepath.Join(agent.Path, skillName)
-
-		// Skip if source and dest are the same
-		srcAbs, _ := filepath.Abs(sourceDir)
-		dstAbs, _ := filepath.Abs(destDir)
-		if srcAbs == dstAbs {
-			continue
-		}
-
-		// Ensure agent dir exists
-		if err := os.MkdirAll(agent.Path, 0755); err != nil {
-			return fmt.Errorf("failed to create agent dir %s: %w", agent.Path, err)
-		}
-
-		// Remove existing skill dir and copy fresh
-		if err := os.RemoveAll(destDir); err != nil {
-			return fmt.Errorf("failed to remove existing %s: %w", destDir, err)
-		}
-
-		if err := copyDir(sourceDir, destDir); err != nil {
-			return fmt.Errorf("failed to copy skill to %s: %w", agent.Path, err)
-		}
-	}
-	return nil
-}
-
-// ReplaceSkillInAgents replaces the skill directory in every agent with the staged source.
-// Unlike EnsureSkillInAllAgents, this also replaces the primary agent and removes files that
-// no longer exist in the remote version.
-func ReplaceSkillInAgents(skillName, sourceDir string, agents []AgentDir) error {
-	for _, agent := range agents {
-		if err := ReplaceSkillDir(agent.Path, skillName, sourceDir); err != nil {
-			return fmt.Errorf("failed to replace skill in agent %s: %w", agent.Name, err)
-		}
-	}
-	return nil
-}
-
-// ReplaceSkillDir atomically swaps one agent's skill directory with sourceDir.
-func ReplaceSkillDir(agentPath, skillName, sourceDir string) error {
-	if err := os.MkdirAll(agentPath, 0755); err != nil {
-		return fmt.Errorf("failed to create agent dir %s: %w", agentPath, err)
-	}
-
-	destDir := filepath.Join(agentPath, skillName)
-	srcAbs, _ := filepath.Abs(sourceDir)
-	dstAbs, _ := filepath.Abs(destDir)
-	if srcAbs == dstAbs {
-		return nil
-	}
-
-	tempParent, err := os.MkdirTemp(agentPath, ".skill-sync-new-")
-	if err != nil {
-		return fmt.Errorf("failed to create temp dir in %s: %w", agentPath, err)
-	}
-	defer os.RemoveAll(tempParent)
-
-	stagedDest := filepath.Join(tempParent, skillName)
-	if err := copyDir(sourceDir, stagedDest); err != nil {
-		return fmt.Errorf("failed to stage replacement: %w", err)
-	}
-
-	backupDir := filepath.Join(agentPath, fmt.Sprintf(".skill-sync-old-%s-%d", skillName, time.Now().UnixNano()))
-	hadExisting := false
-	if _, err := os.Stat(destDir); err == nil {
-		hadExisting = true
-		if err := os.Rename(destDir, backupDir); err != nil {
-			return fmt.Errorf("failed to move existing skill dir: %w", err)
-		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to inspect existing skill dir: %w", err)
-	}
-
-	if err := os.Rename(stagedDest, destDir); err != nil {
-		if hadExisting {
-			_ = os.Rename(backupDir, destDir)
-		}
-		return fmt.Errorf("failed to install replacement: %w", err)
-	}
-
-	if hadExisting {
-		if err := os.RemoveAll(backupDir); err != nil {
-			return fmt.Errorf("failed to remove old skill dir: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // copyDir recursively copies a directory tree.

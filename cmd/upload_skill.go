@@ -85,7 +85,7 @@ func uploadSingleSkill(skillPath string, skillService *skill.SkillService, overw
 	fmt.Printf("  Tip: Use 'skill-review %s' to submit the draft for review.\n", skillName)
 
 	// Update sync state if skill is tracked
-	updateSyncStateAfterUpload(skillName)
+	updateSyncStateAfterUpload(skillName, skillService, absPath)
 }
 
 func uploadAllSkills(folderPath string, skillService *skill.SkillService, overwrite bool) {
@@ -134,6 +134,7 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService, overwr
 			failedCount++
 		} else {
 			fmt.Printf("Upload successful!\n")
+			updateSyncStateAfterUpload(skillName, skillService, skillPath)
 			successCount++
 		}
 		fmt.Println()
@@ -158,7 +159,7 @@ func init() {
 }
 
 // updateSyncStateAfterUpload refreshes the sync state after a successful upload.
-func updateSyncStateAfterUpload(skillName string) {
+func updateSyncStateAfterUpload(skillName string, skillService *skill.SkillService, uploadedPath string) {
 	state, err := skill.LoadSyncState()
 	if err != nil {
 		return // Non-fatal: sync state might not exist yet
@@ -169,12 +170,25 @@ func updateSyncStateAfterUpload(skillName string) {
 		return // Skill not tracked in sync state
 	}
 
-	entry.Status = skill.SyncStatusUploaded
-	state.Skills[skillName] = entry
+	localHash := entry.LocalHash
+	if info, err := os.Stat(uploadedPath); err == nil && info.IsDir() {
+		if hash, err := skill.ComputeDirectoryHash(uploadedPath); err == nil && hash != "" {
+			localHash = hash
+		}
+	} else if state.Repo != "" {
+		if hash, err := skill.ComputeDirectoryHash(filepath.Join(state.Repo, skillName)); err == nil && hash != "" {
+			localHash = hash
+		}
+	}
+
+	if err := skill.RecordUploadedSkill(state, &entry, skillService, localHash); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update sync upload state: %v\n", err)
+		return
+	}
 
 	if err := skill.SaveSyncState(state); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update sync state: %v\n", err)
 	} else {
-		fmt.Printf("  Sync state updated: %s → Uploaded\n", skillName)
+		fmt.Printf("  Sync state updated: %s → Uploaded (%s)\n", skillName, entry.UploadedVersion)
 	}
 }

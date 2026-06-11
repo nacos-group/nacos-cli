@@ -651,8 +651,9 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	return config.Content, nil
 }
 
-// PublishConfig publishes a configuration
-func (c *NacosClient) PublishConfig(dataID, group, content string) error {
+// PublishConfig publishes a configuration. configType is the format hint
+// (e.g. "yaml", "json", "properties", "xml", "text"); pass "" to let the server decide.
+func (c *NacosClient) PublishConfig(dataID, group, content, configType string) error {
 	if err := c.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -660,6 +661,10 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 		"dataId":    dataID,
 		"groupName": group,
 		"content":   content,
+	}
+
+	if configType != "" {
+		params["type"] = configType
 	}
 
 	if c.Namespace != "" {

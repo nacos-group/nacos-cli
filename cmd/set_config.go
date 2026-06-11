@@ -6,10 +6,12 @@ import (
 	"os"
 
 	"github.com/nacos-group/nacos-cli/internal/help"
+	"github.com/nacos-group/nacos-cli/internal/util"
 	"github.com/spf13/cobra"
 )
 
 var setConfigFile string
+var setConfigType string
 
 var setConfigCmd = &cobra.Command{
 	Use:   "config-set [dataId] [group]",
@@ -28,11 +30,13 @@ var setConfigCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		configType := util.ResolveConfigType(setConfigType, setConfigFile, dataID)
+
 		// Create Nacos client
 		nacosClient := mustNewNacosClient()
 
 		fmt.Printf("Publishing config: %s (%s)...\n", dataID, group)
-		err = nacosClient.PublishConfig(dataID, group, content)
+		err = nacosClient.PublishConfig(dataID, group, content, configType)
 		checkError(err)
 
 		fmt.Println("Configuration published successfully")
@@ -64,5 +68,6 @@ func readSetConfigContent() (string, error) {
 
 func init() {
 	setConfigCmd.Flags().StringVarP(&setConfigFile, "file", "f", "", "Path to config file (default: read from stdin)")
+	setConfigCmd.Flags().StringVarP(&setConfigType, "type", "t", "", "Config format type: yaml | json | xml | html | properties | toml | text (auto-detected from filename if omitted)")
 	rootCmd.AddCommand(setConfigCmd)
 }

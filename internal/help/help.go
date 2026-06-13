@@ -76,10 +76,14 @@ var (
 		Parameters: []string{
 			"skillPath       Required. Path to the skill directory (or .zip file)",
 			"--all           Upload all skills in the specified directory",
+			"--overwrite     Whether to overwrite an existing draft: true | false (default: false)",
 		},
 		Examples: []string{
 			"# Upload a single skill",
 			"skill-upload ./my-skill",
+			"",
+			"# Upload and overwrite an existing draft",
+			"skill-upload ./my-skill --overwrite true",
 			"",
 			"# Upload all skills in a directory",
 			"skill-upload --all ./skills-folder",

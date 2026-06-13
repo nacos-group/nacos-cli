@@ -28,6 +28,9 @@ func TestUploadSkillOnlyUploadsDraft(t *testing.T) {
 			if got := r.URL.Query().Get("namespaceId"); got != "test-ns" {
 				t.Fatalf("upload namespaceId = %s, want test-ns", got)
 			}
+			if got := r.URL.Query().Get("overwrite"); got != "false" {
+				t.Fatalf("upload overwrite = %s, want false", got)
+			}
 			if err := r.ParseMultipartForm(1 << 20); err != nil {
 				t.Fatalf("parse multipart upload: %v", err)
 			}
@@ -68,11 +71,44 @@ func TestUploadSkillOnlyUploadsDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := NewSkillService(nacosClient).UploadSkill(skillDir); err != nil {
+	if err := NewSkillService(nacosClient).UploadSkill(skillDir, false); err != nil {
 		t.Fatal(err)
 	}
 	if !uploadCalled {
 		t.Fatal("upload was not called")
+	}
+}
+
+func TestUploadSkillSendsOverwriteQueryParam(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/admin/ai/skills/upload" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("namespaceId"); got != "test-ns" {
+			t.Fatalf("upload namespaceId = %s, want test-ns", got)
+		}
+		if got := r.URL.Query().Get("overwrite"); got != "true" {
+			t.Fatalf("upload overwrite = %s, want true", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	skillDir := t.TempDir() + "/demo-skill"
+	if err := os.Mkdir(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillDir+"/SKILL.md", []byte("# Demo Skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	nacosClient, err := newTestNacosClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewSkillService(nacosClient).UploadSkill(skillDir, true); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -247,7 +283,7 @@ func TestUploadSkillZipPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := NewSkillService(nacosClient).UploadSkill(skillDir); err != nil {
+	if err := NewSkillService(nacosClient).UploadSkill(skillDir, false); err != nil {
 		t.Fatal(err)
 	}
 

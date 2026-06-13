@@ -96,6 +96,13 @@ func TestParseCommandArgs(t *testing.T) {
 			expectedArgs: []string{"-h"},
 			description:  "Short help flag should be recognized as boolean",
 		},
+		{
+			name:         "skill upload overwrite flag with value",
+			input:        "skill-upload ./my-skill --overwrite true",
+			expectedCmd:  "skill-upload",
+			expectedArgs: []string{"./my-skill", "--overwrite", "true"},
+			description:  "Overwrite flag should consume true or false as its value",
+		},
 	}
 
 	for _, tt := range tests {
@@ -116,6 +123,71 @@ func TestParseCommandArgs(t *testing.T) {
 				if i < len(tt.expectedArgs) && arg != tt.expectedArgs[i] {
 					t.Errorf("parseCommandArgs(%q) args[%d] = %q, want %q\nFull got:  %v\nFull want: %v\nTest: %s\nDescription: %s",
 						tt.input, i, arg, tt.expectedArgs[i], args, tt.expectedArgs, tt.name, tt.description)
+				}
+			}
+		})
+	}
+}
+
+func TestParseSkillUploadOverwrite(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		expectedArgs   []string
+		expectedResult bool
+		wantErr        bool
+	}{
+		{
+			name:           "default false",
+			args:           []string{"./my-skill"},
+			expectedArgs:   []string{"./my-skill"},
+			expectedResult: false,
+		},
+		{
+			name:           "separate true value",
+			args:           []string{"./my-skill", "--overwrite", "true"},
+			expectedArgs:   []string{"./my-skill"},
+			expectedResult: true,
+		},
+		{
+			name:           "equals false value",
+			args:           []string{"--overwrite=false", "./my-skill"},
+			expectedArgs:   []string{"./my-skill"},
+			expectedResult: false,
+		},
+		{
+			name:    "missing value",
+			args:    []string{"./my-skill", "--overwrite"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid value",
+			args:    []string{"./my-skill", "--overwrite", "yes"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args, overwrite, err := parseSkillUploadOverwrite(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if overwrite != tt.expectedResult {
+				t.Fatalf("overwrite = %v, want %v", overwrite, tt.expectedResult)
+			}
+			if len(args) != len(tt.expectedArgs) {
+				t.Fatalf("args length = %d, want %d; got %v", len(args), len(tt.expectedArgs), args)
+			}
+			for i, arg := range args {
+				if arg != tt.expectedArgs[i] {
+					t.Fatalf("args[%d] = %q, want %q", i, arg, tt.expectedArgs[i])
 				}
 			}
 		})

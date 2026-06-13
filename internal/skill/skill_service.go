@@ -386,10 +386,10 @@ func extractZip(zipBytes []byte, targetDir string) error {
 	return nil
 }
 
-// UploadSkill uploads a skill from local directory or a pre-built zip file.
+// UploadSkill uploads a skill draft from local directory or a pre-built zip file.
 // If skillPath points to a .zip file it is uploaded directly; otherwise the
 // directory is packed into a zip on-the-fly (skillName/... structure).
-func (s *SkillService) UploadSkill(skillPath string) error {
+func (s *SkillService) UploadSkill(skillPath string, overwrite bool) error {
 	if err := s.client.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -465,8 +465,8 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	}
 
 	// Send HTTP request
-	uploadURL := fmt.Sprintf("%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s",
-		s.client.BaseURL(), s.client.Namespace)
+	uploadURL := fmt.Sprintf("%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s&overwrite=%t",
+		s.client.BaseURL(), s.client.Namespace, overwrite)
 	req, err := s.client.NewAuthedRequest("POST", uploadURL, body)
 	if err != nil {
 		return err

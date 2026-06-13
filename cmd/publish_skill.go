@@ -70,7 +70,7 @@ func publishSingleLegacy(skillPath string, skillService *skill.SkillService) {
 
 	skillName := deriveSkillNameFromPath(absPath)
 	fmt.Printf("[1/2] Uploading skill: %s...\n", skillName)
-	if err := skillService.UploadSkill(absPath); err != nil {
+	if err := skillService.UploadSkill(absPath, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: upload failed for '%s': %v\n", skillName, err)
 		os.Exit(1)
 	}
@@ -127,7 +127,7 @@ func publishAllLegacy(folderPath string, skillService *skill.SkillService) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		if err := skillService.UploadSkill(skillPath); err != nil {
+		if err := skillService.UploadSkill(skillPath, false); err != nil {
 			fmt.Printf("Upload failed: %v\n", err)
 			failedCount++
 			fmt.Println()

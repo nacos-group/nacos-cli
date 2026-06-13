@@ -84,6 +84,7 @@ func completer() *readline.PrefixCompleter {
 			readline.PcItem("--help"),
 			readline.PcItem("-h"),
 			readline.PcItem("--all"),
+			readline.PcItem("--overwrite"),
 		),
 		readline.PcItem("skill-publish",
 			readline.PcItem("--help"),
@@ -896,7 +897,17 @@ func (t *Terminal) getSkill(args []string) {
 // uploadSkill uploads a skill draft (editing state)
 func (t *Terminal) uploadSkill(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: skill-upload <skillPath> or skill-upload --all <folder>")
+		fmt.Println("Usage: skill-upload <skillPath> [--overwrite true|false] or skill-upload --all <folder> [--overwrite true|false]")
+		return
+	}
+
+	args, overwrite, err := parseSkillUploadOverwrite(args)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	if len(args) == 0 {
+		fmt.Println("Usage: skill-upload <skillPath> [--overwrite true|false] or skill-upload --all <folder> [--overwrite true|false]")
 		return
 	}
 
@@ -924,10 +935,10 @@ func (t *Terminal) uploadSkill(args []string) {
 	if allFlagIndex >= 0 {
 		if folderPath == "" {
 			fmt.Println("Error: folder path required for --all flag")
-			fmt.Println("Usage: skill-upload --all <folder> or skill-upload <folder> --all")
+			fmt.Println("Usage: skill-upload --all <folder> [--overwrite true|false] or skill-upload <folder> --all [--overwrite true|false]")
 			return
 		}
-		t.uploadAllSkills(folderPath)
+		t.uploadAllSkills(folderPath, overwrite)
 		return
 	}
 
@@ -953,7 +964,7 @@ func (t *Terminal) uploadSkill(args []string) {
 
 	fmt.Printf("Uploading skill: %s...\n", skillPath)
 
-	err := t.skillService.UploadSkill(skillPath)
+	err = t.skillService.UploadSkill(skillPath, overwrite)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -963,8 +974,39 @@ func (t *Terminal) uploadSkill(args []string) {
 	fmt.Printf("Tip: Use 'skill-review %s' to submit the draft for review.\n", filepath.Base(skillPath))
 }
 
+func parseSkillUploadOverwrite(args []string) ([]string, bool, error) {
+	overwrite := false
+	filtered := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		value := ""
+		if arg == "--overwrite" {
+			if i+1 >= len(args) {
+				return nil, false, fmt.Errorf("--overwrite must be true or false")
+			}
+			i++
+			value = args[i]
+		} else if strings.HasPrefix(arg, "--overwrite=") {
+			value = strings.TrimPrefix(arg, "--overwrite=")
+		} else {
+			filtered = append(filtered, arg)
+			continue
+		}
+
+		switch value {
+		case "false":
+			overwrite = false
+		case "true":
+			overwrite = true
+		default:
+			return nil, false, fmt.Errorf("--overwrite must be true or false")
+		}
+	}
+	return filtered, overwrite, nil
+}
+
 // uploadAllSkills publishes all skill drafts in a directory
-func (t *Terminal) uploadAllSkills(folderPath string) {
+func (t *Terminal) uploadAllSkills(folderPath string, overwrite bool) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~/") {
 		homeDir, err := os.UserHomeDir()
@@ -1022,7 +1064,7 @@ func (t *Terminal) uploadAllSkills(folderPath string) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		err := t.skillService.UploadSkill(skillPath)
+		err := t.skillService.UploadSkill(skillPath, overwrite)
 		if err != nil {
 			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
@@ -1211,7 +1253,7 @@ func (t *Terminal) publishLegacy(args []string) {
 			return
 		}
 		// Upload all first, then submit all drafts for review.
-		t.uploadAllSkills(folderPath)
+		t.uploadAllSkills(folderPath, false)
 		t.reviewAllSkills(folderPath)
 		return
 	}
@@ -1234,7 +1276,7 @@ func (t *Terminal) publishLegacy(args []string) {
 	}
 
 	fmt.Printf("[1/2] Uploading skill: %s...\n", skillPath)
-	if err := t.skillService.UploadSkill(skillPath); err != nil {
+	if err := t.skillService.UploadSkill(skillPath, false); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}

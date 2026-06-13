@@ -12,6 +12,7 @@ import (
 )
 
 var uploadAll bool
+var uploadOverwrite bool
 
 var uploadSkillCmd = &cobra.Command{
 	Use:   "skill-upload [skillPath]",
@@ -29,14 +30,42 @@ var uploadSkillCmd = &cobra.Command{
 		skillService := skill.NewSkillService(nacosClient)
 
 		if uploadAll {
-			uploadAllSkills(skillPath, skillService)
+			uploadAllSkills(skillPath, skillService, uploadOverwrite)
 			return
 		}
-		uploadSingleSkill(skillPath, skillService)
+		uploadSingleSkill(skillPath, skillService, uploadOverwrite)
 	},
 }
 
-func uploadSingleSkill(skillPath string, skillService *skill.SkillService) {
+type overwriteFlagValue struct {
+	value *bool
+}
+
+func (flag overwriteFlagValue) Set(value string) error {
+	switch value {
+	case "false":
+		*flag.value = false
+		return nil
+	case "true":
+		*flag.value = true
+		return nil
+	default:
+		return fmt.Errorf("--overwrite must be true or false")
+	}
+}
+
+func (flag overwriteFlagValue) String() string {
+	if flag.value == nil {
+		return "false"
+	}
+	return fmt.Sprintf("%t", *flag.value)
+}
+
+func (flag overwriteFlagValue) Type() string {
+	return "bool"
+}
+
+func uploadSingleSkill(skillPath string, skillService *skill.SkillService, overwrite bool) {
 	if strings.HasPrefix(skillPath, "~") {
 		homeDir, err := os.UserHomeDir()
 		checkError(err)
@@ -49,14 +78,14 @@ func uploadSingleSkill(skillPath string, skillService *skill.SkillService) {
 	skillName := filepath.Base(absPath)
 	fmt.Printf("Uploading skill: %s...\n", skillName)
 
-	err = skillService.UploadSkill(absPath)
+	err = skillService.UploadSkill(absPath, overwrite)
 	checkError(err)
 
 	fmt.Printf("Skill draft uploaded successfully!\n")
 	fmt.Printf("  Tip: Use 'skill-review %s' to submit the draft for review.\n", skillName)
 }
 
-func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
+func uploadAllSkills(folderPath string, skillService *skill.SkillService, overwrite bool) {
 	if strings.HasPrefix(folderPath, "~") {
 		homeDir, err := os.UserHomeDir()
 		checkError(err)
@@ -97,7 +126,7 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		if err := skillService.UploadSkill(skillPath); err != nil {
+		if err := skillService.UploadSkill(skillPath, overwrite); err != nil {
 			fmt.Printf("Upload failed: %v\n", err)
 			failedCount++
 		} else {
@@ -121,5 +150,6 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService) {
 
 func init() {
 	uploadSkillCmd.Flags().BoolVar(&uploadAll, "all", false, "Upload all skills in the directory")
+	uploadSkillCmd.Flags().Var(overwriteFlagValue{value: &uploadOverwrite}, "overwrite", "Whether to overwrite existing draft: true | false")
 	rootCmd.AddCommand(uploadSkillCmd)
 }

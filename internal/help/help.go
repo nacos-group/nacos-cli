@@ -355,8 +355,8 @@ var (
 		Command:     "skill-sync",
 		Description: "Unified skill synchronization management across agent directories.",
 		Parameters: []string{
-			"add <skill>     Subscribe and initial pull",
-			"remove <skill>  Unsubscribe (keeps local files)",
+			"add <skill>     Add and initial pull/link",
+			"remove <skill>  Remove from sync management (keeps agent copies)",
 			"status          Show sync state table",
 			"resolve <skill> Resolve conflicts (--use-local / --use-remote)",
 			"start           Start background sync daemon",
@@ -366,7 +366,7 @@ var (
 			"pull <skill>    Manually pull latest version",
 		},
 		Examples: []string{
-			"# Subscribe to a skill",
+			"# Add a skill",
 			"skill-sync add pdf",
 			"",
 			"# Start background sync",

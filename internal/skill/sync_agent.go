@@ -16,6 +16,12 @@ var WellKnownAgents = []struct {
 	{Name: "codex", Path: ".codex/skills"},
 	{Name: "claude", Path: ".claude/skills"},
 	{Name: "qoder", Path: ".qoder/skills"},
+	{Name: "qoderwork", Path: ".qoderwork/skills"},
+	{Name: "cursor", Path: ".cursor/skills"},
+	{Name: "kiro", Path: ".kiro/skills"},
+	{Name: "lingma", Path: ".lingma/skills"},
+	{Name: "copaw", Path: ".copaw/skill_pool"},
+	{Name: "openclaw", Path: ".openclaw/skills"},
 	{Name: "agents", Path: ".agents/skills"},
 	{Name: "default", Path: ".skills"},
 }

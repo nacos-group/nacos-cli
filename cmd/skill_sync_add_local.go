@@ -61,6 +61,7 @@ func runSkillSyncAddLocal(skillNames []string, opts addOptions) error {
 
 func addSingleLocal(state *skill.SyncState, repoPath, skillName string, opts addOptions) error {
 	skillRepoPath := filepath.Join(repoPath, skillName)
+	forceLink := false
 	if _, err := os.Stat(skillRepoPath); err != nil {
 		if !os.IsNotExist(err) {
 			return err
@@ -74,10 +75,22 @@ func addSingleLocal(state *skill.SyncState, repoPath, skillName string, opts add
 			fmt.Printf("Skipped: %s\n", skillName)
 			return nil
 		}
+		// The source has been chosen explicitly or is unambiguous, so make it
+		// the shared local source for every configured agent.
+		forceLink = true
 	}
 
 	fmt.Printf("Adding %s...\n", skillName)
-	res, conflictAgents, err := skill.LinkSkillSafe(repoPath, skillName, state.Agents, os.Stdout)
+	var (
+		res            *skill.LinkResult
+		conflictAgents []string
+		err            error
+	)
+	if forceLink {
+		res, err = skill.LinkSkillForce(repoPath, skillName, state.Agents, os.Stdout)
+	} else {
+		res, conflictAgents, err = skill.LinkSkillSafe(repoPath, skillName, state.Agents, os.Stdout)
+	}
 	if err != nil {
 		return err
 	}
@@ -132,10 +145,10 @@ func updateLocalEntryWithConflicts(state *skill.SyncState, skillName string, con
 func printAddSummary(skillName string, result *skill.LinkResult, conflictAgents []string) {
 	linked, skipped := summarizeResult(result)
 	if len(conflictAgents) == 0 {
-		fmt.Printf("Subscribed: %s (linked to %d agent(s))\n", skillName, linked)
+		fmt.Printf("Added: %s (linked to %d agent(s))\n", skillName, linked)
 		return
 	}
-	fmt.Printf("Subscribed: %s (linked to %d, skipped %d)\n", skillName, linked, skipped)
+	fmt.Printf("Added: %s (linked to %d, skipped %d)\n", skillName, linked, skipped)
 	fmt.Printf("Conflicts: %v\n", conflictAgents)
 	fmt.Printf("Run 'skill-sync resolve %s' to fix.\n", skillName)
 }

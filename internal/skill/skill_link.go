@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -48,6 +49,14 @@ type LinkResult struct {
 	SkillName string
 	Agents    []AgentLinkResult
 }
+
+type AgentDetachAction string
+
+const (
+	AgentDetachCopied       AgentDetachAction = "copied"
+	AgentDetachKeptCopy     AgentDetachAction = "kept_copy"
+	AgentDetachKeptExisting AgentDetachAction = "kept_existing"
+)
 
 // LinkSkillToAllAgents creates symlinks from agentDirs to the skill in repoPath.
 // It examines each agent, resolves conflicts via the resolver, and reports per-agent results.
@@ -150,6 +159,69 @@ func LinkSkillToAllAgents(repoPath, skillName string, agents []AgentDir, opts Li
 	}
 
 	return result, nil
+}
+
+// DetachSkillFromAllAgents stops symlink-based management while preserving a
+// usable local copy in each agent whenever possible.
+func DetachSkillFromAllAgents(repoPath, skillName string, agents []AgentDir, out io.Writer) error {
+	if out == nil {
+		out = io.Discard
+	}
+	var failures []string
+	for _, agent := range agents {
+		action, err := DetachSkillFromAgent(repoPath, skillName, agent.Path)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", agent.Name, err))
+			fmt.Fprintf(out, "  %s\tfailed: %v\n", agent.Name, err)
+			continue
+		}
+		switch action {
+		case AgentDetachCopied:
+			fmt.Fprintf(out, "  %s\tdetached (copied)\n", agent.Name)
+		case AgentDetachKeptCopy:
+			fmt.Fprintf(out, "  %s\tkept local copy\n", agent.Name)
+		case AgentDetachKeptExisting:
+			fmt.Fprintf(out, "  %s\tkept existing local\n", agent.Name)
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("failed to detach %s from %d agent(s): %s", skillName, len(failures), strings.Join(failures, "; "))
+	}
+	return nil
+}
+
+// DetachSkillFromAgent converts a managed symlink into a real local copy. If
+// the agent already has a real directory, it is kept untouched.
+func DetachSkillFromAgent(repoPath, skillName, agentPath string) (AgentDetachAction, error) {
+	repoSkillPath := filepath.Join(repoPath, skillName)
+	agentSkillPath := filepath.Join(agentPath, skillName)
+
+	status, err := InspectAgentSkill(agentPath, skillName, repoPath)
+	if err != nil {
+		return "", err
+	}
+	switch status {
+	case AgentSkillSame:
+		return AgentDetachKeptCopy, nil
+	case AgentSkillConflict, AgentSkillFound:
+		return AgentDetachKeptExisting, nil
+	case AgentSkillLinked, AgentSkillMissing, AgentSkillBroken:
+		if _, err := os.Stat(repoSkillPath); err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("repo source missing: %s", repoSkillPath)
+			}
+			return "", err
+		}
+		if err := os.RemoveAll(agentSkillPath); err != nil {
+			return "", fmt.Errorf("remove managed entry: %w", err)
+		}
+		if err := copyDir(repoSkillPath, agentSkillPath); err != nil {
+			return "", fmt.Errorf("copy local skill: %w", err)
+		}
+		return AgentDetachCopied, nil
+	default:
+		return "", fmt.Errorf("unsupported agent skill status: %s", status)
+	}
 }
 
 // UnlinkSkillFromAllAgents removes the skill symlink from every agent.

@@ -89,6 +89,67 @@ func TestLinkSkillSafe_ConflictKeepsLocal(t *testing.T) {
 	}
 }
 
+func TestDetachSkillFromAllAgentsCopiesLinkedSkill(t *testing.T) {
+	_, repo := withRepoHome(t)
+	writeSkillUnder(t, repo, "demo", "repo content")
+
+	agentRoot := t.TempDir()
+	if err := LinkSkillToAgent(repo, "demo", agentRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DetachSkillFromAllAgents(repo, "demo", []AgentDir{{Name: "codex", Path: agentRoot}}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	agentSkill := filepath.Join(agentRoot, "demo")
+	info, err := os.Lstat(agentSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("%s should be a real directory after detach", agentSkill)
+	}
+	body, err := os.ReadFile(filepath.Join(agentSkill, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "repo content" {
+		t.Fatalf("detached content = %q, want repo content", body)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "demo", "SKILL.md"), []byte("changed repo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(filepath.Join(agentSkill, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "repo content" {
+		t.Fatalf("agent copy should not follow repo after detach, got %q", body)
+	}
+}
+
+func TestDetachSkillFromAllAgentsKeepsExistingLocalConflict(t *testing.T) {
+	_, repo := withRepoHome(t)
+	writeSkillUnder(t, repo, "demo", "repo content")
+
+	agentRoot := t.TempDir()
+	writeSkillUnder(t, agentRoot, "demo", "agent content")
+
+	if err := DetachSkillFromAllAgents(repo, "demo", []AgentDir{{Name: "codex", Path: agentRoot}}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(agentRoot, "demo", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "agent content" {
+		t.Fatalf("agent content = %q, want original local content", body)
+	}
+}
+
 func TestResolveAgentConflict_UseRepo(t *testing.T) {
 	_, repo := withRepoHome(t)
 	writeSkillUnder(t, repo, "demo", "REPO VERSION")

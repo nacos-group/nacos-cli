@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -131,6 +132,89 @@ func TestSyncPollOnceKeepsLocalChangesWhenRemoteUpdates(t *testing.T) {
 	}
 	if entry.RemoteMd5 != "m2" || entry.ResolvedVersion != "v2" {
 		t.Fatalf("remote state = md5:%s version:%s, want m2/v2", entry.RemoteMd5, entry.ResolvedVersion)
+	}
+}
+
+func TestSyncPollOnceKeepsLocalOnlySkillWhenRemoteMissing(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "local only")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	secondary := filepath.Join(t.TempDir(), "secondary")
+	if err := skill.LinkSkillToAgent(repoPath, "demo", primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.LinkSkillToAgent(repoPath, "demo", secondary); err != nil {
+		t.Fatal(err)
+	}
+
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: true},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+			{Name: "secondary", Path: secondary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:      "demo",
+				Label:     "latest",
+				LocalHash: localHash,
+				Status:    skill.SyncStatusLocalChanges,
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/client/ai/skills" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		requests++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+	assertFileContent(t, filepath.Join(repoPath, "demo", "SKILL.md"), "local only")
+	assertFileContent(t, filepath.Join(primary, "demo", "SKILL.md"), "local only")
+	assertFileContent(t, filepath.Join(secondary, "demo", "SKILL.md"), "local only")
+	assertSkillSymlink(t, primary, "demo")
+	assertSkillSymlink(t, secondary, "demo")
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := state.Skills["demo"]
+	if !ok {
+		t.Fatal("local-only skill was removed from sync state")
+	}
+	if entry.Status != skill.SyncStatusLocalChanges {
+		t.Fatalf("status = %s, want local changes", entry.Status)
+	}
+	if entry.PendingChangeHash != localHash {
+		t.Fatalf("pending change hash = %s, want %s", entry.PendingChangeHash, localHash)
 	}
 }
 
@@ -299,6 +383,211 @@ func TestSyncPollOnceForcesPullWhenResolvedVersionMovesOn304(t *testing.T) {
 	}
 	if entry.RemoteMd5 != "m2" || entry.ResolvedVersion != "v2" {
 		t.Fatalf("remote state = md5:%s version:%s, want m2/v2", entry.RemoteMd5, entry.ResolvedVersion)
+	}
+}
+
+func TestSyncPollOnceDoesNotReapplyWhenFetchedHashMatchesSyncedWithoutMd5(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "old")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	secondary := filepath.Join(t.TempDir(), "secondary")
+	if err := skill.LinkSkillToAgent(repoPath, "demo", primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.LinkSkillToAgent(repoPath, "demo", secondary); err != nil {
+		t.Fatal(err)
+	}
+
+	syncedHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: true},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+			{Name: "secondary", Path: secondary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:       "demo",
+				Label:      "latest",
+				LocalHash:  syncedHash,
+				SyncedHash: syncedHash,
+				Status:     skill.SyncStatusSynced,
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	zipBytes := makeZip(t, map[string]string{
+		"demo/SKILL.md": "old",
+	})
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/client/ai/skills" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		requests++
+		if got := r.URL.Query().Get("md5"); got != "" {
+			t.Fatalf("md5 = %s, want empty", got)
+		}
+		w.Header().Set("X-Nacos-Skill-Resolved-Version", "v1")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(zipBytes)
+	}))
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	backupRoot := filepath.Join(repoPath, "..", ".skill-sync-backup")
+	if _, err := os.Stat(backupRoot); err == nil {
+		t.Fatalf("backup root %s exists; unchanged content should not be backed up", backupRoot)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	assertFileContent(t, filepath.Join(repoPath, "demo", "SKILL.md"), "old")
+	assertSkillSymlink(t, primary, "demo")
+	assertSkillSymlink(t, secondary, "demo")
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Skills["demo"]
+	if entry.Status != skill.SyncStatusSynced {
+		t.Fatalf("status = %s, want synced", entry.Status)
+	}
+	if entry.ResolvedVersion != "v1" {
+		t.Fatalf("resolved version = %q, want v1", entry.ResolvedVersion)
+	}
+	if entry.SyncedHash != syncedHash {
+		t.Fatalf("synced hash changed: %s != %s", entry.SyncedHash, syncedHash)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+}
+
+func TestSyncPollOnceSkipsDownloadWhenVersionUnchangedWithoutMd5(t *testing.T) {
+	withTempHome(t)
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	secondary := filepath.Join(t.TempDir(), "secondary")
+	writeSkillFile(t, primary, "demo", "SKILL.md", "old")
+	writeSkillFile(t, secondary, "demo", "SKILL.md", "old")
+
+	syncedHash, err := skill.ComputeDirectoryHash(filepath.Join(primary, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Label:   "latest",
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+			{Name: "secondary", Path: secondary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:            "demo",
+				Label:           "latest",
+				ResolvedVersion: "v1",
+				LocalHash:       syncedHash,
+				SyncedHash:      syncedHash,
+				Status:          skill.SyncStatusSynced,
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	describeRequests := 0
+	fetchRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/nacos/v3/admin/ai/skills":
+			describeRequests++
+			if got := r.URL.Query().Get("skillName"); got != "demo" {
+				t.Fatalf("skillName = %s, want demo", got)
+			}
+			resp := skill.V3Response{
+				Code: 0,
+				Data: json.RawMessage(`{"labels":{"latest":"v1"}}`),
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/nacos/v3/client/ai/skills":
+			fetchRequests++
+			t.Fatalf("fetch should be skipped when version is unchanged and md5 is unavailable")
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	if describeRequests != 1 {
+		t.Fatalf("describe requests = %d, want 1", describeRequests)
+	}
+	if fetchRequests != 0 {
+		t.Fatalf("fetch requests = %d, want 0", fetchRequests)
+	}
+}
+
+func TestRotateLogIfNeeded(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "skill-sync.log")
+	if err := os.WriteFile(logPath, []byte("current-large"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath+".1", []byte("old-1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath+".2", []byte("old-2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rotateLogIfNeeded(logPath, 4, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileContent(t, logPath+".1", "current-large")
+	assertFileContent(t, logPath+".2", "old-1")
+	if _, err := os.Stat(logPath); err == nil {
+		t.Fatal("active log should be moved after rotation")
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+func TestSkillSyncStartHasNonInteractiveFlag(t *testing.T) {
+	if flag := skillSyncStartCmd.Flags().Lookup("non-interactive"); flag == nil {
+		t.Fatal("start command should expose --non-interactive")
+	}
+}
+
+func TestDecideStartConflictsNonInteractiveSkips(t *testing.T) {
+	decision := decideStartConflicts([]startConflict{
+		{Name: "demo", Reason: "local differs from Nacos"},
+	}, false)
+	if decision != startConflictSkip {
+		t.Fatalf("decision = %s, want skip", decision)
 	}
 }
 

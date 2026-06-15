@@ -24,21 +24,33 @@ var (
 	syncStartRefresh             bool
 	syncStartLabel               string
 	syncStartNoAutoUpload        bool
+	syncStartNonInteract         bool
+)
+
+const (
+	syncDaemonLogMaxBytes = 10 * 1024 * 1024
+	syncDaemonLogBackups  = 3
 )
 
 var skillSyncStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Initial sync and start the background daemon/watcher",
-	Long: `Run the first-time sync and start the background sync process.
+	Short: "Initial sync; start the daemon in Nacos mode",
+	Long: `Run the first-time sync. In Nacos mode, also start the background sync process.
+In local mode, only link repo skills into agent directories.
 
-In Nacos mode: pulls every subscribed skill from Nacos and links it to the
+In Nacos mode: pulls every added skill from Nacos and links it to the
 agents. Conflicts (local content differs from Nacos) are skipped and reported;
-resolve them with 'skill-sync resolve <skill>'. Use --all to also subscribe
-to every skill on Nacos. Use --use-remote-on-conflict to overwrite local on
+resolve them with 'skill-sync resolve <skill>'. Use --all to also add every
+skill on Nacos. Use --use-remote-on-conflict to overwrite local on
 conflict (with backup).
 
+Use --non-interactive in scripts or Agent calls. It disables prompts; start
+records and skips conflicts unless --use-remote-on-conflict is provided.
+
 In local mode: links every skill in ~/.nacos-cli/skill-repo to the agents.
-Use --all to also reverse-import unmanaged skills found in agent directories.`,
+Use --all to also reverse-import unmanaged skills found in agent directories.
+Local mode does not start a background daemon; symlinks keep agents pointed at
+the central repo after the initial link step.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// In --foreground mode, this process IS the daemon. Skip the
@@ -67,7 +79,7 @@ Use --all to also reverse-import unmanaged skills found in agent directories.`,
 		modeRes, err := skill.ResolveSyncMode(state, skill.ResolveModeOptions{
 			Override:    override,
 			ProfileHint: profileName,
-			Interactive: !syncStartForeground,
+			Interactive: !syncStartForeground && !syncStartNonInteract,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -100,6 +112,8 @@ Use --all to also reverse-import unmanaged skills found in agent directories.`,
 			if !runLocalInitialSync(state, initOpts) {
 				return
 			}
+			printSyncStatusSummary(state)
+			return
 		} else if modeRes.Mode == skill.SyncModeNacos && !syncStartForeground {
 			if !runNacosInitialSync(state, initOpts) {
 				return
@@ -138,7 +152,7 @@ func runSyncDaemonForeground(state *skill.SyncState, interval time.Duration) {
 
 	// Check for stale PID
 	if existingPID, _ := skill.LoadSyncDaemonPID(); existingPID != 0 && existingPID != currentPID {
-		if skill.IsProcessRunning(existingPID) {
+		if skill.IsSyncDaemonProcess(existingPID) {
 			fmt.Fprintf(os.Stderr, "Error: sync daemon already running (pid: %d)\n", existingPID)
 			os.Exit(1)
 		}
@@ -153,7 +167,7 @@ func runSyncDaemonForeground(state *skill.SyncState, interval time.Duration) {
 	}()
 
 	fmt.Printf("Tracking label: %s\n", state.Label)
-	fmt.Printf("Subscriptions: %s\n", strings.Join(state.GetSubscribedSkillNames(), ", "))
+	fmt.Printf("Added skills: %s\n", strings.Join(state.GetSubscribedSkillNames(), ", "))
 	fmt.Printf("\nSync daemon running (foreground, interval: %s)...\n", interval)
 	fmt.Printf("Press Ctrl+C to stop.\n\n")
 
@@ -219,16 +233,19 @@ func syncPollOnce(skillService *skill.SkillService) {
 
 		localChanged, preLocalHash, dirtyAgents := detectLocalChanges(name, state.Agents, entry.SyncedHash)
 
-		// Query with current MD5 for conditional download
-		result, err := skillService.FetchSkill(name, "", state.Label, entry.RemoteMd5)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] Error polling %s: %v\n", timeNow(), name, err)
-			continue
+		// Query with current MD5 for conditional download. If the server does
+		// not provide MD5s, use the resolved label version as a cheap guard to
+		// avoid downloading and re-applying immutable content every cycle.
+		result, skippedByVersion := skipFetchWhenVersionUnchanged(skillService, name, state.Label, entry)
+		if !skippedByVersion {
+			result, err = skillService.FetchSkill(name, "", state.Label, entry.RemoteMd5)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] Error polling %s: %v\n", timeNow(), name, err)
+				continue
+			}
+			ensureFetchedResolvedVersion(skillService, name, state.Label, result)
 		}
-
-		fmt.Printf("[%s] Poll: %s label=%s sentMd5=%s updated=%v deleted=%v newMd5=%s newVersion=%s\n",
-			timeNow(), name, state.Label, shortHash(entry.RemoteMd5), result.Updated, result.Deleted,
-			shortHash(result.Md5), result.ResolvedVersion)
+		logPollResult(name, state.Label, entry.RemoteMd5, result, skippedByVersion)
 
 		// Workaround: when server returns 304 but the resolved version differs from
 		// what we have, the label has been pointed to a new version. Re-query without
@@ -242,13 +259,21 @@ func syncPollOnce(skillService *skill.SkillService) {
 				fmt.Fprintf(os.Stderr, "[%s] Error force-pulling %s: %v\n", timeNow(), name, err)
 				continue
 			}
+			ensureFetchedResolvedVersion(skillService, name, state.Label, result)
 		}
 
 		if result.Deleted {
-			fmt.Printf("[%s] Deleted: %s (removed from server)\n", timeNow(), name)
-			delete(state.Skills, name)
-			changed = true
-			continue
+			if shouldKeepLocalWhenRemoteMissing(entry.Status) {
+				if verbose {
+					fmt.Printf("[%s] Remote missing: %s (kept %s)\n",
+						timeNow(), name, entry.Status.DisplayString())
+				}
+			} else {
+				fmt.Printf("[%s] Deleted: %s (removed from server)\n", timeNow(), name)
+				delete(state.Skills, name)
+				changed = true
+				continue
+			}
 		}
 
 		if result.Updated {
@@ -265,7 +290,24 @@ func syncPollOnce(skillService *skill.SkillService) {
 				continue
 			}
 
-			if shouldProtectLocalFromRemote(entry.Status) {
+			if fetchedContentMatchesSynced(entry, newHash) {
+				cleanup()
+				entryChanged := mergeFetchedMetadata(&entry, result)
+				if localChanged && entry.Status != skill.SyncStatusLocalChanges &&
+					entry.Status != skill.SyncStatusUploaded {
+					entry.LocalHash = preLocalHash
+					entry.Status = skill.SyncStatusLocalChanges
+					entryChanged = true
+				}
+				if entryChanged {
+					entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					state.Skills[name] = entry
+					changed = true
+				}
+				if verbose {
+					fmt.Printf("[%s] Unchanged: %s (content hash matched)\n", timeNow(), name)
+				}
+			} else if shouldProtectLocalFromRemote(entry.Status) {
 				cleanup()
 				entry = keepLocalAfterRemoteUpdate(entry, preLocalHash, result)
 				fmt.Printf("[%s] Remote update pending: %s (kept %s)\n",
@@ -374,18 +416,73 @@ func shouldProtectLocalFromRemote(status skill.SyncStatus) bool {
 		status == skill.SyncStatusUploadBlocked
 }
 
+func shouldKeepLocalWhenRemoteMissing(status skill.SyncStatus) bool {
+	return shouldProtectLocalFromRemote(status)
+}
+
 func keepLocalAfterRemoteUpdate(entry skill.SyncSkillEntry, localHash string, result *skill.SkillQueryResult) skill.SyncSkillEntry {
-	if result.Md5 != "" {
-		entry.RemoteMd5 = result.Md5
-	}
-	if result.ResolvedVersion != "" {
-		entry.ResolvedVersion = result.ResolvedVersion
-	}
+	mergeFetchedMetadata(&entry, result)
 	if localHash != "" {
 		entry.LocalHash = localHash
 	}
 	entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	return entry
+}
+
+func skipFetchWhenVersionUnchanged(skillService *skill.SkillService, name, label string, entry skill.SyncSkillEntry) (*skill.SkillQueryResult, bool) {
+	if entry.RemoteMd5 != "" || entry.ResolvedVersion == "" {
+		return nil, false
+	}
+	version := resolveSkillLabelVersion(skillService, name, label)
+	if version == "" || version != entry.ResolvedVersion {
+		return nil, false
+	}
+	return &skill.SkillQueryResult{
+		Md5:             entry.RemoteMd5,
+		ResolvedVersion: version,
+		Updated:         false,
+	}, true
+}
+
+func logPollResult(name, label, sentMd5 string, result *skill.SkillQueryResult, skippedByVersion bool) {
+	if !verbose || result == nil {
+		return
+	}
+	if skippedByVersion {
+		fmt.Printf("[%s] Poll: %s label=%s sentMd5=%s updated=false skipped=version newVersion=%s\n",
+			timeNow(), name, label, shortHash(sentMd5), result.ResolvedVersion)
+		return
+	}
+	fmt.Printf("[%s] Poll: %s label=%s sentMd5=%s updated=%v deleted=%v newMd5=%s newVersion=%s\n",
+		timeNow(), name, label, shortHash(sentMd5), result.Updated, result.Deleted,
+		shortHash(result.Md5), result.ResolvedVersion)
+}
+
+func fetchedContentMatchesSynced(entry skill.SyncSkillEntry, fetchedHash string) bool {
+	if fetchedHash == "" {
+		return false
+	}
+	syncedHash := entry.SyncedHash
+	if syncedHash == "" {
+		syncedHash = entry.LocalHash
+	}
+	return syncedHash != "" && fetchedHash == syncedHash
+}
+
+func mergeFetchedMetadata(entry *skill.SyncSkillEntry, result *skill.SkillQueryResult) bool {
+	if entry == nil || result == nil {
+		return false
+	}
+	changed := false
+	if result.Md5 != "" && entry.RemoteMd5 != result.Md5 {
+		entry.RemoteMd5 = result.Md5
+		changed = true
+	}
+	if result.ResolvedVersion != "" && entry.ResolvedVersion != result.ResolvedVersion {
+		entry.ResolvedVersion = result.ResolvedVersion
+		changed = true
+	}
+	return changed
 }
 
 func applyRemoteUpdateToRepoAndAgents(repoPath, name, sourceDir string, agents []skill.AgentDir) error {
@@ -462,7 +559,7 @@ func shortHash(h string) string {
 func startSyncDaemonBackground() (int, string, error) {
 	// Clear stale PID if any
 	if existingPID, _ := skill.LoadSyncDaemonPID(); existingPID != 0 {
-		if !skill.IsProcessRunning(existingPID) {
+		if !skill.IsSyncDaemonProcess(existingPID) {
 			_ = skill.ClearSyncDaemonPID(existingPID)
 		}
 	}
@@ -474,6 +571,9 @@ func startSyncDaemonBackground() (int, string, error) {
 
 	logPath, err := skill.GetSyncDaemonLogPath()
 	if err != nil {
+		return 0, "", err
+	}
+	if err := rotateSyncDaemonLogIfNeeded(logPath); err != nil {
 		return 0, "", err
 	}
 
@@ -535,13 +635,56 @@ func startSyncDaemonBackground() (int, string, error) {
 	return pid, logPath, nil
 }
 
+func rotateSyncDaemonLogIfNeeded(logPath string) error {
+	return rotateLogIfNeeded(logPath, syncDaemonLogMaxBytes, syncDaemonLogBackups)
+}
+
+func rotateLogIfNeeded(logPath string, maxBytes int64, backups int) error {
+	if backups <= 0 {
+		return nil
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("inspect sync daemon log: %w", err)
+	}
+	if info.Size() <= maxBytes {
+		return nil
+	}
+
+	oldest := fmt.Sprintf("%s.%d", logPath, backups)
+	if err := os.Remove(oldest); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove old sync daemon log: %w", err)
+	}
+	for i := backups - 1; i >= 1; i-- {
+		src := fmt.Sprintf("%s.%d", logPath, i)
+		dst := fmt.Sprintf("%s.%d", logPath, i+1)
+		if _, err := os.Stat(src); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("inspect rotated sync daemon log: %w", err)
+		}
+		if err := os.Rename(src, dst); err != nil {
+			return fmt.Errorf("rotate sync daemon log: %w", err)
+		}
+	}
+	if err := os.Rename(logPath, logPath+".1"); err != nil {
+		return fmt.Errorf("rotate sync daemon log: %w", err)
+	}
+	return nil
+}
+
 func init() {
 	skillSyncStartCmd.Flags().BoolVar(&syncStartForeground, "foreground", false, "Run in foreground instead of background")
 	skillSyncStartCmd.Flags().StringVar(&syncStartInterval, "interval", "30s", "Poll interval (e.g. 10s, 1m)")
 	skillSyncStartCmd.Flags().BoolVar(&syncStartAll, "all", false, "Pull every available skill (Nacos: namespace-wide; Local: also reverse-import unmanaged)")
 	skillSyncStartCmd.Flags().BoolVar(&syncStartUseRemoteOnConflict, "use-remote-on-conflict", false, "Overwrite local content with remote on conflict (backup first)")
-	skillSyncStartCmd.Flags().BoolVar(&syncStartRefresh, "refresh", false, "Force re-pull every subscribed skill (alias for treating local as out-of-date)")
+	skillSyncStartCmd.Flags().BoolVar(&syncStartRefresh, "refresh", false, "Force re-pull every added skill (alias for treating local as out-of-date)")
 	skillSyncStartCmd.Flags().StringVar(&syncStartLabel, "label", "", "Override the tracking label for this invocation (Nacos mode only)")
 	skillSyncStartCmd.Flags().BoolVar(&syncStartNoAutoUpload, "no-auto-upload", false, "Disable daemon-driven auto-upload")
+	skillSyncStartCmd.Flags().BoolVar(&syncStartNonInteract, "non-interactive", false, "Run without prompts; record and skip conflicts")
 	skillSyncCmd.AddCommand(skillSyncStartCmd)
 }

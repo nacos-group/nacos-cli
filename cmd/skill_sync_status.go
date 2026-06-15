@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/spf13/cobra"
@@ -14,7 +15,7 @@ import (
 
 var skillSyncStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show sync state of all subscribed skills",
+	Short: "Show sync state of all added skills",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		state, err := skill.LoadSyncState()
@@ -24,8 +25,8 @@ var skillSyncStatusCmd = &cobra.Command{
 		}
 
 		if len(state.Skills) == 0 {
-			fmt.Println("No skills subscribed.")
-			fmt.Println("Use 'nacos-cli skill-sync add <skill>' to subscribe.")
+			fmt.Println("No skills added.")
+			fmt.Println("Use 'nacos-cli skill-sync add <skill>' to add a skill.")
 			printSyncDaemonStatus()
 			return
 		}
@@ -58,13 +59,15 @@ func printSyncStatusSummary(state *skill.SyncState) {
 	fmt.Println()
 
 	if len(state.Skills) == 0 {
-		fmt.Println("No skills subscribed.")
-		fmt.Println("Use 'nacos-cli skill-sync add <skill>' to subscribe.")
+		fmt.Println("No skills added.")
+		fmt.Println("Use 'nacos-cli skill-sync add <skill>' to add a skill.")
 		return
 	}
 
 	// Refresh local hashes for accurate status
 	refreshLocalHashes(state)
+	refreshLocalAgentConflicts(state)
+	refreshNacosVersionsForStatus(state)
 
 	// Sort skill names
 	names := make([]string, 0, len(state.Skills))
@@ -167,6 +170,95 @@ func refreshLocalHashes(state *skill.SyncState) {
 	}
 
 	if changed {
+		_ = skill.SaveSyncState(state)
+	}
+}
+
+func refreshLocalAgentConflicts(state *skill.SyncState) {
+	if state.Mode != skill.SyncModeLocal || len(state.Agents) == 0 {
+		return
+	}
+
+	repoPath, err := skill.GetSkillRepoPath()
+	if err != nil {
+		return
+	}
+
+	changed := false
+	for name, entry := range state.Skills {
+		if _, err := os.Stat(filepath.Join(repoPath, name)); err != nil {
+			continue
+		}
+		repoHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, name))
+		if err != nil {
+			continue
+		}
+
+		conflictAgents := make([]string, 0)
+		for _, agent := range state.Agents {
+			status, err := skill.InspectAgentSkill(agent.Path, name, repoPath)
+			if err != nil {
+				continue
+			}
+			if status == skill.AgentSkillConflict || status == skill.AgentSkillBroken {
+				conflictAgents = append(conflictAgents, agent.Name)
+			}
+		}
+
+		desiredStatus := skill.SyncStatusLinked
+		if len(conflictAgents) > 0 {
+			desiredStatus = skill.SyncStatusConflict
+		}
+
+		if !sameStringSlice(entry.ConflictAgents, conflictAgents) ||
+			entry.Status != desiredStatus ||
+			entry.LocalHash != repoHash ||
+			entry.SyncedHash != repoHash {
+			entry.LocalHash = repoHash
+			entry.SyncedHash = repoHash
+			entry.ConflictAgents = conflictAgents
+			entry.Status = desiredStatus
+			entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			state.Skills[name] = entry
+			changed = true
+		}
+	}
+
+	if changed {
+		_ = skill.SaveSyncState(state)
+	}
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func refreshNacosVersionsForStatus(state *skill.SyncState) {
+	if state.Mode != skill.SyncModeNacos {
+		return
+	}
+
+	needsRefresh := false
+	for _, entry := range state.Skills {
+		if entry.ResolvedVersion == "" {
+			needsRefresh = true
+			break
+		}
+	}
+	if !needsRefresh {
+		return
+	}
+
+	svc := skill.NewSkillService(mustNewNacosClient())
+	if refreshMissingNacosVersions(state, svc) {
 		_ = skill.SaveSyncState(state)
 	}
 }

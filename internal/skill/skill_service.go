@@ -113,8 +113,7 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]Ski
 		return nil, 0, err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list skills failed: %w", err)
 	}
@@ -169,8 +168,7 @@ func (s *SkillService) DescribeSkill(skillName string) (*SkillDetail, error) {
 		return nil, err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("describe skill failed: %w", err)
 	}
@@ -225,8 +223,7 @@ func (s *SkillService) UpdateSkillScope(skillName, scope string) error {
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("update skill scope failed: %w", err)
 	}
@@ -260,8 +257,7 @@ func (s *SkillService) UpdateSkillBizTags(skillName, bizTags string) error {
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("update skill bizTags failed: %w", err)
 	}
@@ -324,8 +320,7 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 		return fmt.Errorf("failed to build request: %w", err)
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to get skill: %w", err)
 	}
@@ -445,9 +440,12 @@ func (s *SkillService) UploadSkill(skillPath string, overwrite bool) error {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
-			_, err = io.Copy(writer, file)
-			return err
+			_, copyErr := io.Copy(writer, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create ZIP: %w", err)
@@ -484,8 +482,7 @@ func (s *SkillService) UploadSkill(skillPath string, overwrite bool) error {
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
@@ -530,8 +527,7 @@ func (s *SkillService) PublishSkill(skillName, version string, updateLatestLabel
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("publish failed: %w", err)
 	}
@@ -577,8 +573,7 @@ func (s *SkillService) SubmitSkill(skillName, version string) error {
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("submit failed: %w", err)
 	}
@@ -641,8 +636,7 @@ func (s *SkillService) FetchSkill(skillName, version, label, md5 string) (*Skill
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query skill: %w", err)
 	}

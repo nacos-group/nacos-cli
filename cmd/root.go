@@ -62,6 +62,7 @@ Examples:
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
 		hasEnvConfig := envHost != "" || envPortRaw != "" || envNamespace != ""
+		skillSyncCommand := isSkillSyncCommand(cmd)
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -79,7 +80,7 @@ Examples:
 			} else {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to load current profile setting: %v\n", profileErr)
 			}
-			if hasEnvConfig {
+			if hasEnvConfig || skillSyncCommand {
 				configPath, pathErr := config.GetProfileConfigPath(envName)
 				if pathErr != nil {
 					fmt.Fprintf(os.Stderr, "Warning: Failed to resolve profile config path: %v\n", pathErr)
@@ -88,6 +89,9 @@ Examples:
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: Failed to load config file: %v\n", err)
 					}
+				} else if skillSyncCommand && profileName != "" {
+					fmt.Fprintf(os.Stderr, "Error: profile %q not found; create it with 'profile set' or pass --host/--port explicitly\n", profileName)
+					os.Exit(1)
 				}
 			} else {
 				// This will load, prompt for missing fields, and save
@@ -256,6 +260,17 @@ Examples:
 			checkError(err)
 		}
 	},
+}
+
+func isSkillSyncCommand(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	path := cmd.CommandPath()
+	return path == "nacos-cli skill-sync" ||
+		strings.HasPrefix(path, "nacos-cli skill-sync ") ||
+		path == "skill-sync" ||
+		strings.HasPrefix(path, "skill-sync ")
 }
 
 // SetVersionInfo sets the version information for the root command.

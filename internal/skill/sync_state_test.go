@@ -176,6 +176,81 @@ func TestComputeDirectoryHash_DiffOnChange(t *testing.T) {
 	}
 }
 
+func TestComputeDirectoryHash_IgnoresSkillVersionFrontmatter(t *testing.T) {
+	localDir := t.TempDir()
+	remoteDir := t.TempDir()
+
+	local := `---
+name: demo
+description: test skill
+---
+# Demo
+`
+	remote := `---
+version: 0.0.1
+name: demo
+description: test skill
+---
+# Demo
+`
+
+	if err := os.WriteFile(filepath.Join(localDir, "SKILL.md"), []byte(local), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(remoteDir, "SKILL.md"), []byte(remote), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	localHash, err := ComputeDirectoryHash(localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteHash, err := ComputeDirectoryHash(remoteDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if localHash != remoteHash {
+		t.Fatalf("hash differs for version-only frontmatter change: %s != %s", localHash, remoteHash)
+	}
+}
+
+func TestComputeDirectoryHash_VersionOutsideFrontmatterStillCounts(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	a := `---
+name: demo
+---
+version: local
+`
+	b := `---
+name: demo
+---
+version: remote
+`
+
+	if err := os.WriteFile(filepath.Join(dirA, "SKILL.md"), []byte(a), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "SKILL.md"), []byte(b), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	hashA, err := ComputeDirectoryHash(dirA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashB, err := ComputeDirectoryHash(dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if hashA == hashB {
+		t.Fatal("hash should differ when version text changes outside frontmatter")
+	}
+}
+
 func TestComputeDirectoryHash_ExcludesGit(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Test"), 0644)

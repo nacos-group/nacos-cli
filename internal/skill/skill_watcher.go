@@ -34,7 +34,7 @@ func NewSkillWatcher(nacosClient *client.NacosClient, outputDir string, interval
 		skillService: NewSkillService(nacosClient),
 		outputDir:    outputDir,
 		interval:     interval,
-		onChange:      onChange,
+		onChange:     onChange,
 	}
 }
 
@@ -153,4 +153,3 @@ func (w *SkillWatcher) pollOnce() []SkillUpdateResult {
 
 	return results
 }
-

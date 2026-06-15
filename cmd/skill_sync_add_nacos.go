@@ -66,6 +66,7 @@ func addSingleNacos(state *skill.SyncState, repoPath, skillName string, svc *ski
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
+	ensureFetchedResolvedVersion(svc, skillName, state.Label, fetched)
 
 	remoteAvailable := !fetched.Deleted && (fetched.Updated || fetched.Md5 != "")
 
@@ -111,7 +112,7 @@ func addSingleNacos(state *skill.SyncState, repoPath, skillName string, svc *ski
 				return err
 			}
 			recordLocalSourceRemoteInfo(state, skillName, fetched)
-			printLocalSourceSelected(skillName, source.Name, state.Config.AutoUpload)
+			printLocalSourceSelected(skillName, source.Name, state.Mode, state.Config.AutoUpload)
 			return nil
 		case skillSourceChoiceExit:
 			fmt.Printf("Skipped: %s\n", skillName)
@@ -174,7 +175,7 @@ func addLocalSourceAsChanges(state *skill.SyncState, repoPath, skillName string,
 	if err := promoteLocalSourceToRepo(state, repoPath, skillName, *source); err != nil {
 		return err
 	}
-	printLocalSourceSelected(skillName, source.Name, state.Config.AutoUpload)
+	printLocalSourceSelected(skillName, source.Name, state.Mode, state.Config.AutoUpload)
 	return nil
 }
 
@@ -190,7 +191,11 @@ func recordLocalSourceRemoteInfo(state *skill.SyncState, skillName string, fetch
 	state.Skills[skillName] = entry
 }
 
-func printLocalSourceSelected(skillName, sourceName string, autoUpload bool) {
+func printLocalSourceSelected(skillName, sourceName string, mode skill.SyncMode, autoUpload bool) {
+	if mode != skill.SyncModeNacos {
+		fmt.Printf("Selected %s version for %s. Status: Linked.\n", sourceName, skillName)
+		return
+	}
 	fmt.Printf("Selected %s version for %s. Status: Local changes.\n", sourceName, skillName)
 	if autoUpload {
 		fmt.Println("Auto-upload is enabled; the daemon will upload it as draft.")

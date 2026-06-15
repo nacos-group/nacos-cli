@@ -77,5 +77,5 @@ func IsSyncDaemonRunning() (bool, int) {
 	if err != nil || pid == 0 {
 		return false, 0
 	}
-	return IsProcessRunning(pid), pid
+	return IsSyncDaemonProcess(pid), pid
 }

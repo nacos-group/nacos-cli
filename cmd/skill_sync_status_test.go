@@ -87,6 +87,70 @@ func TestNextActionUploadBlockedShowsDraftVersion(t *testing.T) {
 	}
 }
 
+func TestPrintSyncStatusSummaryDetectsLocalAgentDrift(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := filepath.Join(t.TempDir(), "codex")
+	claude := filepath.Join(t.TempDir(), "claude")
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "codex content")
+
+	hash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeLocal,
+		Repo:    repoPath,
+		Label:   "latest",
+		Agents: []skill.AgentDir{
+			{Name: "codex", Path: codex},
+			{Name: "claude", Path: claude},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:       "demo",
+				LocalHash:  hash,
+				SyncedHash: hash,
+				Status:     skill.SyncStatusLinked,
+			},
+		},
+	}
+	if _, err := skill.LinkSkillForce(repoPath, "demo", state.Agents, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(filepath.Join(claude, "demo")); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, claude, "demo", "SKILL.md", "claude drift")
+
+	output := captureStdout(t, func() {
+		printSyncStatusSummary(state)
+	})
+
+	for _, want := range []string{
+		"demo   Conflict  codex,claude≠  skill-sync resolve demo",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+
+	entry := state.Skills["demo"]
+	if entry.Status != skill.SyncStatusConflict {
+		t.Fatalf("status = %s, want Conflict", entry.Status)
+	}
+	if got, want := strings.Join(entry.ConflictAgents, ","), "claude"; got != want {
+		t.Fatalf("conflict agents = %q, want %q", got, want)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 

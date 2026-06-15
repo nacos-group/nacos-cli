@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,9 +12,9 @@ import (
 
 // hashExcludeDirs lists directories that should be excluded from content hashing.
 var hashExcludeDirs = map[string]bool{
-	".git":              true,
+	".git":               true,
 	".skill-sync-backup": true,
-	"node_modules":      true,
+	"node_modules":       true,
 }
 
 // hashExcludeFiles lists files that should be excluded from content hashing.
@@ -95,17 +94,65 @@ func ComputeDirectoryHash(dir string) (string, error) {
 		hasher.Write([]byte{0}) // NULL separator
 
 		// Write file content
-		file, err := os.Open(f.absPath)
+		data, err := os.ReadFile(f.absPath)
 		if err != nil {
-			return "", fmt.Errorf("failed to open %s: %w", f.absPath, err)
-		}
-		if _, err := io.Copy(hasher, file); err != nil {
-			file.Close()
 			return "", fmt.Errorf("failed to read %s: %w", f.absPath, err)
 		}
-		file.Close()
+		if f.relPath == "SKILL.md" {
+			data = stripSkillVersionFrontmatter(data)
+		}
+		hasher.Write(data)
 		hasher.Write([]byte{0}) // NULL separator
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func stripSkillVersionFrontmatter(data []byte) []byte {
+	lines := splitLinesKeepEnd(data)
+	if len(lines) == 0 || strings.TrimSpace(string(lines[0])) != "---" {
+		return data
+	}
+
+	var out []byte
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(string(line))
+		if i > 0 && trimmed == "---" {
+			out = append(out, line...)
+			for _, rest := range lines[i+1:] {
+				out = append(out, rest...)
+			}
+			return out
+		}
+		if i > 0 && isSkillVersionFrontmatterLine(line) {
+			continue
+		}
+		out = append(out, line...)
+	}
+
+	return data
+}
+
+func isSkillVersionFrontmatterLine(line []byte) bool {
+	trimmed := strings.TrimSpace(string(line))
+	key, _, ok := strings.Cut(trimmed, ":")
+	return ok && strings.TrimSpace(key) == "version"
+}
+
+func splitLinesKeepEnd(data []byte) [][]byte {
+	if len(data) == 0 {
+		return nil
+	}
+	lines := make([][]byte, 0)
+	start := 0
+	for i, b := range data {
+		if b == '\n' {
+			lines = append(lines, data[start:i+1])
+			start = i + 1
+		}
+	}
+	if start < len(data) {
+		lines = append(lines, data[start:])
+	}
+	return lines
 }

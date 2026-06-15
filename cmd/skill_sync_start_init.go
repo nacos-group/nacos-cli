@@ -23,6 +23,14 @@ type startConflict struct {
 	Reason string
 }
 
+type startConflictDecision string
+
+const (
+	startConflictUseNacos startConflictDecision = "nacos"
+	startConflictSkip     startConflictDecision = "skip"
+	startConflictExit     startConflictDecision = "exit"
+)
+
 // runLocalInitialSync handles the first-run sync in local mode.
 //
 // Default behavior:
@@ -182,22 +190,22 @@ func isAllSameHash(results []skill.AgentSearchResult) bool {
 	return true
 }
 
-// runNacosInitialSync pulls subscribed skills from Nacos on first start.
+// runNacosInitialSync pulls tracked skills from Nacos on first start.
 //
 // Default behavior:
-//   - Iterate over state.Skills (the user's subscriptions). For each skill,
+//   - Iterate over state.Skills (the user's tracked skills). For each skill,
 //     fetch from Nacos. If repo or any agent already has different content,
 //     skip and mark Conflict (resolve later). Otherwise pull and link.
 //
 // With opts.All:
-//   - Treat every skill on the namespace as subscribed. Newly discovered
+//   - Treat every skill on the namespace as tracked. Newly discovered
 //     skills are added to state.Skills.
 //
 // With opts.UseRemoteOnConflict:
 //   - On conflict, force overwrite (LinkSkillForce) instead of skip.
 //
 // With opts.Refresh:
-//   - Re-pull every subscribed skill regardless of local state.
+//   - Re-pull every tracked skill regardless of local state.
 func runNacosInitialSync(state *skill.SyncState, opts startInitOptions) bool {
 	repoPath, err := skill.EnsureSkillRepo()
 	if err != nil {
@@ -227,8 +235,8 @@ func runNacosInitialSync(state *skill.SyncState, opts startInitOptions) bool {
 	}
 
 	if len(skillNames) == 0 {
-		fmt.Println("No skills subscribed yet.")
-		fmt.Println("Use 'skill-sync add <name>' to subscribe, or rerun 'start --all' to pull every skill on Nacos.")
+		fmt.Println("No skills added yet.")
+		fmt.Println("Use 'skill-sync add <name>' to add a skill, or rerun 'start --all' to pull every skill on Nacos.")
 		_ = skill.SaveSyncState(state)
 		return true
 	}
@@ -238,12 +246,12 @@ func runNacosInitialSync(state *skill.SyncState, opts startInitOptions) bool {
 
 	fetchedByName, preflightConflicts := preflightNacosStartConflicts(state, repoPath, skillNames, skillService, opts)
 	if len(preflightConflicts) > 0 && !opts.UseRemoteOnConflict {
-		decision := promptStartConflictDecision(preflightConflicts, !syncStartForeground)
+		decision := decideStartConflicts(preflightConflicts, !syncStartForeground && !syncStartNonInteract)
 		switch decision {
-		case "nacos":
+		case startConflictUseNacos:
 			opts.UseRemoteOnConflict = true
-		case "skip":
-		case "exit":
+		case startConflictSkip:
+		case startConflictExit:
 			fmt.Println("Aborted. Daemon not started.")
 			return false
 		}
@@ -277,6 +285,7 @@ func preflightNacosStartConflicts(state *skill.SyncState, repoPath string, skill
 			fmt.Fprintf(os.Stderr, "  %s\tfetch error: %v\n", name, err)
 			continue
 		}
+		ensureFetchedResolvedVersion(svc, name, state.Label, fetched)
 		fetchedByName[name] = fetched
 		if fetched.Deleted || (!fetched.Updated && fetched.Md5 == "") {
 			continue
@@ -352,11 +361,11 @@ func shouldSkipInitialPullForLocal(state *skill.SyncState, name string, opts sta
 	return ok && shouldProtectLocalFromRemote(entry.Status)
 }
 
-func promptStartConflictDecision(conflicts []startConflict, interactive bool) string {
+func decideStartConflicts(conflicts []startConflict, interactive bool) startConflictDecision {
 	if !interactive {
 		printStartConflicts(conflicts)
 		fmt.Println("Non-interactive start: recorded and skipped conflicts.")
-		return "skip"
+		return startConflictSkip
 	}
 
 	printStartConflicts(conflicts)
@@ -368,14 +377,14 @@ func promptStartConflictDecision(conflicts []startConflict, interactive bool) st
 
 	switch strings.TrimSpace(readLine(os.Stdin)) {
 	case "1":
-		return "nacos"
+		return startConflictUseNacos
 	case "", "2":
-		return "skip"
+		return startConflictSkip
 	case "3":
-		return "exit"
+		return startConflictExit
 	default:
 		fmt.Println("Invalid choice. Record and skip conflicts.")
-		return "skip"
+		return startConflictSkip
 	}
 }
 
@@ -404,6 +413,7 @@ func pullAndLinkOne(state *skill.SyncState, repoPath, name string, svc *skill.Sk
 			return false
 		}
 	}
+	ensureFetchedResolvedVersion(svc, name, state.Label, fetched)
 	if fetched.Deleted || (!fetched.Updated && fetched.Md5 == "") {
 		fmt.Printf("  %s\tnot pullable (no online version)\n", name)
 		return false

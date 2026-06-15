@@ -75,3 +75,53 @@ func TestRunSkillSyncAddLocalNonInteractiveReturnsErrorForAmbiguousSources(t *te
 		t.Fatalf("error = %q, want batch failure with --from hint", err.Error())
 	}
 }
+
+func TestRunSkillSyncAddLocalFromAgentLinksAllAgents(t *testing.T) {
+	withTempHome(t)
+	home := os.Getenv("HOME")
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(home, ".codex", "skills")
+	claudePath := filepath.Join(home, ".claude", "skills")
+	writeSkillFile(t, codexPath, "demo", "SKILL.md", "CODEX")
+	writeSkillFile(t, claudePath, "demo", "SKILL.md", "CLAUDE")
+
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeLocal,
+		Label:   "latest",
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "codex", Path: codexPath},
+			{Name: "claude", Path: claudePath},
+		},
+		Skills: map[string]skill.SyncSkillEntry{},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runSkillSyncAddLocal([]string{"demo"}, addOptions{fromAgent: "codex", nonInteract: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	assertFileContent(t, filepath.Join(repoPath, "demo", "SKILL.md"), "CODEX")
+	assertSkillSymlink(t, codexPath, "demo")
+	assertSkillSymlink(t, claudePath, "demo")
+	assertFileContent(t, filepath.Join(claudePath, "demo", "SKILL.md"), "CODEX")
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Skills["demo"]
+	if entry.Status != skill.SyncStatusLinked {
+		t.Fatalf("status = %s, want linked", entry.Status)
+	}
+	if len(entry.ConflictAgents) != 0 {
+		t.Fatalf("conflict agents = %v, want none", entry.ConflictAgents)
+	}
+}

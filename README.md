@@ -350,22 +350,33 @@ nacos-cli skill-publish --all /path/to/skills/folder
 
 #### Sync Skill
 
-Real-time synchronization - automatically syncs local skills when they change in Nacos:
+Skill Sync keeps one local skill copy linked into multiple agent directories,
+and can follow a shared Nacos Skill Registry label such as `latest`.
 
 ```bash
-# Sync single skill (CLI mode only)
-nacos-cli skill-sync skill-creator -s 127.0.0.1:8848 -u nacos -p nacos
+# Add a skill from Nacos and link it to discovered agents
+nacos-cli skill-sync add skill-creator --profile team
 
-# Sync multiple skills
-nacos-cli skill-sync skill-creator skill-analyzer
+# Start the background sync daemon
+nacos-cli skill-sync start --profile team
 
-# Sync all skills
-nacos-cli skill-sync --all
+# Check sync status and next action hints
+nacos-cli skill-sync status
 
-# Press Ctrl+C to stop synchronization
+# Resolve a conflict explicitly
+nacos-cli skill-sync resolve skill-creator
 ```
 
-**Note**: `skill-sync` is only available in CLI mode, not in terminal mode.
+For scripts or agent callers, pass explicit non-interactive choices:
+
+```bash
+nacos-cli skill-sync add skill-creator --profile team --non-interactive
+nacos-cli skill-sync start --profile team --non-interactive
+nacos-cli skill-sync resolve skill-creator --use-nacos --non-interactive
+```
+
+See `docs/skill-sync-user-guide.md` for the full quickstart, conflict handling,
+auto-upload behavior, and troubleshooting flow.
 
 ### Configuration Management
 

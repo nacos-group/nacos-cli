@@ -216,6 +216,36 @@ func TestPersistentPreRunExplicitProfileOverridesCurrentProfile(t *testing.T) {
 	}
 }
 
+func TestPersistentPreRunDoesNotCreateConfigForSkillSyncWithoutProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	rootCmd.PersistentPreRun(skillSyncTestCommand("add"), nil)
+
+	configPath, err := config.GetProfileConfigPath("default")
+	if err != nil {
+		t.Fatalf("get profile path: %v", err)
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		t.Fatalf("config file %s should not be created by skill-sync", configPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if serverAddr != "market.hiclaw.io:80" {
+		t.Fatalf("serverAddr = %q, want default market address", serverAddr)
+	}
+}
+
+func skillSyncTestCommand(name string) *cobra.Command {
+	root := &cobra.Command{Use: "nacos-cli"}
+	sync := &cobra.Command{Use: "skill-sync"}
+	child := &cobra.Command{Use: name}
+	root.AddCommand(sync)
+	sync.AddCommand(child)
+	return child
+}
+
 func resetRootConfigForTest(t *testing.T) {
 	t.Helper()
 

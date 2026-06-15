@@ -24,7 +24,7 @@ var skillSyncStopCmd = &cobra.Command{
 			fmt.Println("No sync daemon is recorded.")
 			return
 		}
-		if !skill.IsProcessRunning(pid) {
+		if !skill.IsSyncDaemonProcess(pid) {
 			if err := skill.ClearSyncDaemonPID(pid); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: failed to clear stale PID: %v\n", err)
 				os.Exit(1)

@@ -12,34 +12,62 @@ var (
 	resolveUseNacos    bool
 	resolveUseLocal    bool
 	resolveUseRemote   bool
+	resolveUseRepo     bool
 	resolveUseAgent    string
 	resolveAll         bool
 	resolveNonInteract bool
 )
+
+type resolveOptions struct {
+	UseNacos    bool
+	UseRepo     bool
+	UseLocal    bool
+	UseAgent    string
+	NonInteract bool
+}
+
+type resolveDecisionKind string
+
+const (
+	resolveDecisionNacos resolveDecisionKind = "nacos"
+	resolveDecisionRepo  resolveDecisionKind = "repo"
+	resolveDecisionLocal resolveDecisionKind = "local"
+	resolveDecisionExit  resolveDecisionKind = "exit"
+)
+
+type resolveDecision struct {
+	Kind   resolveDecisionKind
+	Source *localSkillSource
+}
 
 var skillSyncResolveCmd = &cobra.Command{
 	Use:   "resolve [skill]",
 	Short: "Resolve a sync conflict",
 	Long: `Resolve a sync conflict.
 
-There are two flavors of conflict:
+Resolution follows the same source-choice model as add.
 
-Resolution options are intentionally the same as add:
+Nacos mode:
   [1] Use Nacos version
+  [2] Use one local agent version and mark Local changes
+  [3] Exit
+
+Local mode:
+  [1] Use central repo version
   [2] Use one local agent version
   [3] Exit
 
 Non-interactive flags:
   --use-nacos          use Nacos version
+  --use-repo           use the central local repo version
   --use-agent NAME     use a local agent version and mark Local changes
   --all                resolve every conflicted skill with the chosen flag
-  --non-interactive    fail if --use-nacos or --use-agent is not provided`,
+  --non-interactive    fail if --use-nacos, --use-repo, or --use-agent is not provided`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		useNacos := resolveUseNacos || resolveUseRemote
-		if (useNacos && resolveUseAgent != "") || (resolveUseLocal && resolveUseAgent != "") ||
-			(useNacos && resolveUseLocal) {
-			fmt.Fprintf(os.Stderr, "Error: choose only one of --use-nacos, --use-agent, --use-local, or --use-remote\n")
+		opts := currentResolveOptions()
+		if err := validateResolveOptions(opts); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: choose only one of --use-nacos, --use-repo, --use-agent, --use-local, or --use-remote\n")
 			os.Exit(1)
 		}
 
@@ -72,7 +100,7 @@ Non-interactive flags:
 			name := args[0]
 			entry, ok := state.Skills[name]
 			if !ok {
-				fmt.Fprintf(os.Stderr, "Error: skill %q not in subscriptions\n", name)
+				fmt.Fprintf(os.Stderr, "Error: skill %q is not managed by skill-sync\n", name)
 				os.Exit(1)
 			}
 			if entry.Status != skill.SyncStatusConflict {
@@ -92,7 +120,7 @@ Non-interactive flags:
 		var failures []string
 		for _, name := range targets {
 			entry := state.Skills[name]
-			if err := resolveOne(state, name, entry, skillService); err != nil {
+			if err := resolveOneWithOptions(state, name, entry, skillService, opts); err != nil {
 				appendSkillFailure(&failures, name, err)
 			}
 		}
@@ -104,58 +132,85 @@ Non-interactive flags:
 	},
 }
 
-// resolveOne dispatches to the right conflict handler.
 func resolveOne(state *skill.SyncState, name string, entry skill.SyncSkillEntry, svc *skill.SkillService) error {
+	return resolveOneWithOptions(state, name, entry, svc, currentResolveOptions())
+}
+
+// resolveOneWithOptions builds a conflict-resolution decision, then executes it.
+func resolveOneWithOptions(state *skill.SyncState, name string, entry skill.SyncSkillEntry, svc *skill.SkillService, opts resolveOptions) error {
 	repoPath, err := skill.EnsureSkillRepo()
 	if err != nil {
 		return err
 	}
 
-	if resolveUseNacos || resolveUseRemote {
+	sources := collectLocalSkillSources(state, repoPath, name, true)
+	decision, err := buildResolveDecision(state, name, entry, sources, svc, opts)
+	if err != nil {
+		return err
+	}
+	return executeResolveDecision(state, repoPath, name, decision, svc)
+}
+
+func currentResolveOptions() resolveOptions {
+	return resolveOptions{
+		UseNacos:    resolveUseNacos || resolveUseRemote,
+		UseRepo:     resolveUseRepo,
+		UseLocal:    resolveUseLocal,
+		UseAgent:    resolveUseAgent,
+		NonInteract: resolveNonInteract,
+	}
+}
+
+func validateResolveOptions(opts resolveOptions) error {
+	choices := 0
+	for _, selected := range []bool{opts.UseNacos, opts.UseRepo, opts.UseLocal, opts.UseAgent != ""} {
+		if selected {
+			choices++
+		}
+	}
+	if choices > 1 {
+		return fmt.Errorf("choose only one resolve source")
+	}
+	return nil
+}
+
+func buildResolveDecision(state *skill.SyncState, name string, entry skill.SyncSkillEntry, sources []localSkillSource, svc *skill.SkillService, opts resolveOptions) (resolveDecision, error) {
+	if opts.UseNacos {
 		if state.Mode != skill.SyncModeNacos {
-			fmt.Printf("Resolving %s: using repo version\n", name)
-			return skill.ResolveAgentConflictUseRepo(state, name)
+			return resolveDecision{Kind: resolveDecisionRepo}, nil
 		}
 		if svc == nil {
-			return fmt.Errorf("nacos service unavailable; check profile/config")
+			return resolveDecision{}, fmt.Errorf("nacos service unavailable; check profile/config")
 		}
-		fmt.Printf("Resolving %s: using Nacos version\n", name)
-		return skill.ResolveUseRemote(state, name, svc, state.Agents)
+		return resolveDecision{Kind: resolveDecisionNacos}, nil
 	}
-
-	sources := collectLocalSkillSources(state, repoPath, name, true)
-	if resolveUseAgent != "" {
-		source := findLocalSource(sources, resolveUseAgent)
+	if opts.UseRepo {
+		return resolveDecision{Kind: resolveDecisionRepo}, nil
+	}
+	if opts.UseAgent != "" {
+		source := findLocalSource(sources, opts.UseAgent)
 		if source == nil {
-			return fmt.Errorf("agent %q does not have a usable local version", resolveUseAgent)
+			return resolveDecision{}, fmt.Errorf("agent %q does not have a usable local version", opts.UseAgent)
 		}
-		if err := promoteLocalSourceToRepo(state, repoPath, name, *source); err != nil {
-			return err
-		}
-		printLocalSourceSelected(name, source.Name, state.Config.AutoUpload)
-		return nil
+		return resolveDecision{Kind: resolveDecisionLocal, Source: source}, nil
 	}
-	if resolveUseLocal {
+	if opts.UseLocal {
 		source := firstNonRepoSource(sources)
 		if source == nil && len(sources) > 0 {
 			source = &sources[0]
 		}
 		if source == nil {
-			return fmt.Errorf("no usable local source")
+			return resolveDecision{}, fmt.Errorf("no usable local source")
 		}
-		if err := promoteLocalSourceToRepo(state, repoPath, name, *source); err != nil {
-			return err
-		}
-		printLocalSourceSelected(name, source.Name, state.Config.AutoUpload)
-		return nil
+		return resolveDecision{Kind: resolveDecisionLocal, Source: source}, nil
 	}
-	if resolveNonInteract {
-		return fmt.Errorf("conflict requires interaction; use --use-nacos or --use-agent")
+	if opts.NonInteract {
+		return resolveDecision{}, fmt.Errorf("conflict requires interaction; use --use-nacos, --use-repo, or --use-agent")
 	}
 
 	if state.Mode == skill.SyncModeNacos {
 		if svc == nil {
-			return fmt.Errorf("nacos service unavailable; check profile/config")
+			return resolveDecision{}, fmt.Errorf("nacos service unavailable; check profile/config")
 		}
 		fmt.Printf("\n%s has conflicts", name)
 		if entry.ResolvedVersion != "" {
@@ -164,41 +219,58 @@ func resolveOne(state *skill.SyncState, name string, entry skill.SyncSkillEntry,
 		fmt.Println(".")
 		choice, source, err := chooseNacosOrLocalSource(name, sources, state.Config.AutoUpload, addOptions{})
 		if err != nil {
-			return err
+			return resolveDecision{}, err
 		}
 		switch choice {
 		case skillSourceChoiceNacos:
-			fmt.Printf("Resolving %s: using Nacos version\n", name)
-			return skill.ResolveUseRemote(state, name, svc, state.Agents)
+			return resolveDecision{Kind: resolveDecisionNacos}, nil
 		case skillSourceChoiceLocal:
 			if source == nil {
-				return nil
+				return resolveDecision{Kind: resolveDecisionExit}, nil
 			}
-			if err := promoteLocalSourceToRepo(state, repoPath, name, *source); err != nil {
-				return err
-			}
-			printLocalSourceSelected(name, source.Name, state.Config.AutoUpload)
-			return nil
+			return resolveDecision{Kind: resolveDecisionLocal, Source: source}, nil
 		case skillSourceChoiceExit:
-			fmt.Printf("Skipped: %s\n", name)
-			return nil
+			return resolveDecision{Kind: resolveDecisionExit}, nil
 		}
-		return nil
+		return resolveDecision{Kind: resolveDecisionExit}, nil
 	}
 
 	source, err := chooseLocalSourceOnly(name, sources, state.Config.AutoUpload, addOptions{})
 	if err != nil {
-		return err
+		return resolveDecision{}, err
 	}
 	if source == nil {
+		return resolveDecision{Kind: resolveDecisionExit}, nil
+	}
+	return resolveDecision{Kind: resolveDecisionLocal, Source: source}, nil
+}
+
+func executeResolveDecision(state *skill.SyncState, repoPath, name string, decision resolveDecision, svc *skill.SkillService) error {
+	switch decision.Kind {
+	case resolveDecisionNacos:
+		if svc == nil {
+			return fmt.Errorf("nacos service unavailable; check profile/config")
+		}
+		fmt.Printf("Resolving %s: using Nacos version\n", name)
+		return skill.ResolveUseRemote(state, name, svc, state.Agents)
+	case resolveDecisionRepo:
+		fmt.Printf("Resolving %s: using repo version\n", name)
+		return skill.ResolveAgentConflictUseRepo(state, name)
+	case resolveDecisionLocal:
+		if decision.Source == nil {
+			return fmt.Errorf("local source missing")
+		}
+		if err := promoteLocalSourceToRepo(state, repoPath, name, *decision.Source); err != nil {
+			return err
+		}
+		printLocalSourceSelected(name, decision.Source.Name, state.Mode, state.Config.AutoUpload)
+		return nil
+	case resolveDecisionExit:
 		fmt.Printf("Skipped: %s\n", name)
 		return nil
+	default:
+		return fmt.Errorf("unsupported resolve decision: %s", decision.Kind)
 	}
-	if err := promoteLocalSourceToRepo(state, repoPath, name, *source); err != nil {
-		return err
-	}
-	fmt.Printf("Resolving %s: using %s version\n", name, source.Name)
-	return nil
 }
 
 func firstNonRepoSource(sources []localSkillSource) *localSkillSource {
@@ -212,6 +284,7 @@ func firstNonRepoSource(sources []localSkillSource) *localSkillSource {
 
 func init() {
 	skillSyncResolveCmd.Flags().BoolVar(&resolveUseNacos, "use-nacos", false, "Use Nacos version (non-interactive)")
+	skillSyncResolveCmd.Flags().BoolVar(&resolveUseRepo, "use-repo", false, "Use central repo version (non-interactive)")
 	skillSyncResolveCmd.Flags().StringVar(&resolveUseAgent, "use-agent", "", "Use a local agent version (non-interactive)")
 	skillSyncResolveCmd.Flags().BoolVar(&resolveUseLocal, "use-local", false, "Deprecated: use the first local source")
 	skillSyncResolveCmd.Flags().BoolVar(&resolveUseRemote, "use-remote", false, "Deprecated: use --use-nacos")

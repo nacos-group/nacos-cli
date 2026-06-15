@@ -24,6 +24,8 @@ const (
 	AuthTypeStsToken = "sts-hiclaw" // STS temporary credential via Hiclaw controller
 )
 
+const DefaultHTTPTimeout = 30 * time.Second
+
 // defaultStsCredTTL is used when the STS endpoint omits both expires_in_sec
 // and expiration — without it stsCredExpireAt would stay zero and the
 // credentials would never be refreshed proactively.
@@ -56,6 +58,7 @@ type NacosClient struct {
 	stsCredExpireAt  time.Time // expiration time of STS credentials
 	authLoginVersion string    // "v3" or "v1", determined by first successful login
 	httpClient       *resty.Client
+	rawHTTPClient    *http.Client
 	Verbose          bool // Enable verbose/debug output
 }
 
@@ -169,7 +172,8 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 		SecurityToken: securityToken,
 		StsURL:        stsURL,
 		StsAuthToken:  stsAuthToken,
-		httpClient:    resty.New(),
+		httpClient:    resty.New().SetTimeout(DefaultHTTPTimeout),
+		rawHTTPClient: &http.Client{Timeout: DefaultHTTPTimeout},
 	}
 
 	for _, opt := range opts {
@@ -189,6 +193,20 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 		}
 	}
 	return c, nil
+}
+
+// HTTPClient returns the shared standard HTTP client used by APIs that need
+// explicit request construction.
+func (c *NacosClient) HTTPClient() *http.Client {
+	if c.rawHTTPClient == nil {
+		c.rawHTTPClient = &http.Client{Timeout: DefaultHTTPTimeout}
+	}
+	return c.rawHTTPClient
+}
+
+// Do sends an HTTP request using the shared client timeout and connection pool.
+func (c *NacosClient) Do(req *http.Request) (*http.Response, error) {
+	return c.HTTPClient().Do(req)
 }
 
 // isLocalAddr checks if the server address is localhost

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -92,4 +94,53 @@ func IsProcessRunning(pid int) bool {
 	}
 	err = proc.Signal(syscall.Signal(0))
 	return err == nil || errors.Is(err, os.ErrPermission)
+}
+
+// IsSyncDaemonProcess reports whether pid points to the skill-sync daemon,
+// guarding against stale PID files after the OS reuses a process ID.
+func IsSyncDaemonProcess(pid int) bool {
+	if !IsProcessRunning(pid) {
+		return false
+	}
+	cmdline, err := processCommandLine(pid)
+	if err != nil {
+		return false
+	}
+	return isSyncDaemonCommand(cmdline)
+}
+
+func processCommandLine(pid int) (string, error) {
+	if runtime.GOOS == "linux" {
+		data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+		if err == nil && len(data) > 0 {
+			return strings.ReplaceAll(string(data), "\x00", " "), nil
+		}
+	}
+
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func isSyncDaemonCommand(cmdline string) bool {
+	fields := strings.Fields(cmdline)
+	hasSkillSync := false
+	hasStart := false
+	hasForeground := false
+	for _, field := range fields {
+		switch field {
+		case "skill-sync":
+			hasSkillSync = true
+		case "start":
+			hasStart = true
+		case "--foreground":
+			hasForeground = true
+		}
+		if strings.HasPrefix(field, "--foreground=") {
+			hasForeground = true
+		}
+	}
+	return hasSkillSync && hasStart && hasForeground
 }

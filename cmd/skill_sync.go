@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/nacos-group/nacos-cli/internal/skill"
@@ -42,6 +43,12 @@ var (
 	addOptDryRun      bool
 	addOptNonInteract bool
 )
+
+type removeOptions struct {
+	all bool
+}
+
+var removeOptAll bool
 
 var skillSyncAddCmd = &cobra.Command{
 	Use:   "add [skill...]",
@@ -87,10 +94,12 @@ var skillSyncRemoveCmd = &cobra.Command{
 
 For each managed symlink, the command copies the repo skill into the agent
 directory before removing the tracking state. Existing real directories are left
-untouched.`,
-	Args: cobra.MinimumNArgs(1),
+untouched.
+
+Use --all to remove every skill from sync management.`,
+	Args: validateSkillSyncRemoveArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := runSkillSyncRemove(args); err != nil {
+		if err := runSkillSyncRemove(args, currentRemoveOptions(cmd)); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -131,6 +140,7 @@ var skillSyncSetLabelCmd = &cobra.Command{
 
 func init() {
 	registerSkillSyncAddFlags(skillSyncAddCmd)
+	registerSkillSyncRemoveFlags(skillSyncRemoveCmd)
 
 	skillSyncCmd.AddCommand(skillSyncAddCmd)
 	skillSyncCmd.AddCommand(skillSyncRemoveCmd)
@@ -152,6 +162,26 @@ func currentAddOptions() addOptions {
 		dryRun:      addOptDryRun,
 		nonInteract: addOptNonInteract,
 	}
+}
+
+func registerSkillSyncRemoveFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&removeOptAll, "all", false, "Remove all skills from sync management")
+}
+
+func currentRemoveOptions(cmd *cobra.Command) removeOptions {
+	all, _ := cmd.Flags().GetBool("all")
+	return removeOptions{all: all}
+}
+
+func validateSkillSyncRemoveArgs(cmd *cobra.Command, args []string) error {
+	all, _ := cmd.Flags().GetBool("all")
+	if all {
+		if len(args) > 0 {
+			return fmt.Errorf("--all cannot be combined with skill names")
+		}
+		return nil
+	}
+	return cobra.MinimumNArgs(1)(cmd, args)
 }
 
 func runSkillSyncAdd(skillNames []string, opts addOptions) error {
@@ -186,10 +216,21 @@ func runSkillSyncAdd(skillNames []string, opts addOptions) error {
 	}
 }
 
-func runSkillSyncRemove(skillNames []string) error {
+func runSkillSyncRemove(skillNames []string, opts removeOptions) error {
 	state, err := skill.LoadSyncState()
 	if err != nil {
 		return fmt.Errorf("failed to load sync state: %w", err)
+	}
+
+	if opts.all {
+		skillNames = state.GetSubscribedSkillNames()
+		sort.Strings(skillNames)
+		if len(skillNames) == 0 {
+			fmt.Println("No skills managed by skill-sync.")
+			return nil
+		}
+	} else if len(skillNames) == 0 {
+		return fmt.Errorf("skill name required")
 	}
 
 	repoPath, err := skill.EnsureSkillRepo()

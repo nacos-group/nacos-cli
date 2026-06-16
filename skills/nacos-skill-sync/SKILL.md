@@ -1,5 +1,5 @@
 ---
-version: 0.0.1
+version: 0.0.4
 name: nacos-skill-sync
 description: Use when Codex needs to synchronize local AI agent skills across Codex, Claude, Qoder, QoderWork, Cursor, Kiro, Lingma, CoPaw, OpenClaw, ~/.agents/skills, ~/.skills, and optionally a Nacos Skill Registry. Handles skill-sync setup, add/start/status/resolve/stop flows, Nacos mode and local mode, non-interactive agent execution, conflict triage, auto-upload state, Upload blocked handling, and safe human decision points.
 ---
@@ -258,6 +258,15 @@ $CLI skill-sync status
 - `Uploaded`: draft uploaded; wait for review/release. Keep checking status.
 - `Upload blocked`: Nacos already has a draft or reviewing version. Do not overwrite. Tell the user the current remote draft/reviewing version exists and ask whether they want to review, release, or clear it in Nacos. After it is handled, auto-upload will retry.
 - `Conflict`: ask for source-of-truth decision and run `resolve`.
+
+## Remote Missing or Deleted
+
+When daemon polling reports a tracked Nacos skill as missing, interpret it by local state:
+
+- `Synced`: treat the Nacos deletion as authoritative. `skill-sync` stops managing the skill, replaces agent symlinks with real local copies, and removes it from sync state. Do not re-add or upload it unless the user explicitly asks.
+- `Local changes`: keep the central repo and agent links. This is usually a local add or a user-chosen local source that has not uploaded yet; auto-upload may still proceed.
+- `Upload blocked`: keep the central repo and agent links. The daemon should keep checking the Nacos draft/review state and retry after the remote blocker is handled.
+- `Uploaded`: keep watching the recorded uploaded version and md5. If that exact uploaded version is released, status should move to `Synced`; if it disappears or changes, follow status output and ask the user before taking destructive action.
 
 ## Manual Upload Path
 

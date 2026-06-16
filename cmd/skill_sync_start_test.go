@@ -218,6 +218,254 @@ func TestSyncPollOnceKeepsLocalOnlySkillWhenRemoteMissing(t *testing.T) {
 	}
 }
 
+func TestSyncPollOnceAutoUploadsStableLocalOnlySkillWhenRemoteMissing(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "local only")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	if err := skill.LinkSkillToAgent(repoPath, "demo", primary); err != nil {
+		t.Fatal(err)
+	}
+
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: true},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:              "demo",
+				Label:             "latest",
+				LocalHash:         localHash,
+				Status:            skill.SyncStatusLocalChanges,
+				PendingChangeHash: localHash,
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	uploaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/nacos/v3/client/ai/skills":
+			if r.URL.Query().Get("version") == "0.0.2" {
+				w.Header().Set("X-Nacos-Skill-Md5", "md5-uploaded")
+				w.Header().Set("X-Nacos-Skill-Resolved-Version", "0.0.2")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(makeZip(t, map[string]string{"SKILL.md": "local only"}))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		case "/nacos/v3/admin/ai/skills":
+			if !uploaded {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			resp := skill.V3Response{
+				Code: 0,
+				Data: json.RawMessage(`{"name":"demo","editingVersion":"0.0.2","versions":[{"version":"0.0.2","status":"editing"}]}`),
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/nacos/v3/admin/ai/skills/upload":
+			uploaded = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	if !uploaded {
+		t.Fatal("expected auto-upload")
+	}
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Skills["demo"]
+	if entry.Status != skill.SyncStatusUploaded {
+		t.Fatalf("status = %s, want uploaded", entry.Status)
+	}
+	if entry.UploadedVersion != "0.0.2" || entry.UploadedMd5 != "md5-uploaded" {
+		t.Fatalf("uploaded = version:%q md5:%q, want 0.0.2/md5-uploaded", entry.UploadedVersion, entry.UploadedMd5)
+	}
+}
+
+func TestSyncPollOnceTransitionsUploadedSkillWhenLatestMissing(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "uploaded local")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	if err := skill.LinkSkillToAgent(repoPath, "demo", primary); err != nil {
+		t.Fatal(err)
+	}
+
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: true},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:            "demo",
+				Label:           "latest",
+				RemoteMd5:       "old-latest-md5",
+				ResolvedVersion: "0.0.1",
+				LocalHash:       localHash,
+				Status:          skill.SyncStatusUploaded,
+				UploadedVersion: "0.0.2",
+				UploadedMd5:     "md5-uploaded",
+				LastUploadedMd5: "md5-uploaded",
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/nacos/v3/client/ai/skills":
+			if r.URL.Query().Get("version") == "0.0.2" {
+				if r.URL.Query().Get("md5") != "md5-uploaded" {
+					t.Fatalf("uploaded version should be verified by md5, got %q", r.URL.Query().Get("md5"))
+				}
+				w.Header().Set("X-Nacos-Skill-Md5", "md5-uploaded")
+				w.Header().Set("X-Nacos-Skill-Resolved-Version", "0.0.2")
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		case "/nacos/v3/admin/ai/skills":
+			resp := skill.V3Response{
+				Code: 0,
+				Data: json.RawMessage(`{"name":"demo","versions":[{"version":"0.0.2","status":"online"}]}`),
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Skills["demo"]
+	if entry.Status != skill.SyncStatusSynced {
+		t.Fatalf("status = %s, want synced", entry.Status)
+	}
+	if entry.ResolvedVersion != "0.0.2" || entry.RemoteMd5 != "md5-uploaded" {
+		t.Fatalf("remote state = version:%q md5:%q, want 0.0.2/md5-uploaded", entry.ResolvedVersion, entry.RemoteMd5)
+	}
+	if entry.UploadedVersion != "" || entry.UploadedMd5 != "" {
+		t.Fatalf("uploaded markers were not cleared: version:%q md5:%q", entry.UploadedVersion, entry.UploadedMd5)
+	}
+	assertSkillSymlink(t, primary, "demo")
+}
+
+func TestSyncPollOnceDetachesSyncedSkillWhenRemoteDeleted(t *testing.T) {
+	withTempHome(t)
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "demo", "SKILL.md", "kept local")
+
+	primary := filepath.Join(t.TempDir(), "primary")
+	secondary := filepath.Join(t.TempDir(), "secondary")
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, "demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Label:   "latest",
+		Config:  skill.SyncConfig{AutoUpload: true},
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "primary", Path: primary},
+			{Name: "secondary", Path: secondary},
+		},
+		Skills: map[string]skill.SyncSkillEntry{
+			"demo": {
+				Name:            "demo",
+				Label:           "latest",
+				RemoteMd5:       "m1",
+				ResolvedVersion: "v1",
+				LocalHash:       localHash,
+				SyncedHash:      localHash,
+				Status:          skill.SyncStatusSynced,
+			},
+		},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/client/ai/skills" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	skillService := newSkillServiceForTest(t, server.URL)
+	syncPollOnce(skillService)
+
+	assertFileContent(t, filepath.Join(repoPath, "demo", "SKILL.md"), "kept local")
+	assertFileContent(t, filepath.Join(primary, "demo", "SKILL.md"), "kept local")
+	assertFileContent(t, filepath.Join(secondary, "demo", "SKILL.md"), "kept local")
+	assertNotSymlink(t, filepath.Join(primary, "demo"))
+	assertNotSymlink(t, filepath.Join(secondary, "demo"))
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Skills["demo"]; ok {
+		t.Fatal("remote-deleted synced skill should be removed from sync state")
+	}
+}
+
 func TestInitialNacosPullSkipsLocalChanges(t *testing.T) {
 	withTempHome(t)
 
@@ -732,5 +980,16 @@ func assertSkillSymlink(t *testing.T, agentPath, skillName string) {
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("%s should be a symlink, got %v", skillPath, info.Mode())
+	}
+}
+
+func assertNotSymlink(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("%s should not be a symlink", path)
 	}
 }

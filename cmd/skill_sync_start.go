@@ -263,13 +263,30 @@ func syncPollOnce(skillService *skill.SkillService) {
 		}
 
 		if result.Deleted {
-			if shouldKeepLocalWhenRemoteMissing(entry.Status) {
-				if verbose {
-					fmt.Printf("[%s] Remote missing: %s (kept %s)\n",
-						timeNow(), name, entry.Status.DisplayString())
+			stopManaging := true
+			if remoteMissingResolutionForStatus(entry.Status) == remoteMissingKeepManaged {
+				kept, keepErr := preserveLocalRepoWhenRemoteMissing(state, repoPath, name, entry)
+				if keepErr != nil {
+					fmt.Fprintf(os.Stderr, "[%s] Error preserving local %s after remote delete: %v\n", timeNow(), name, keepErr)
+					continue
 				}
-			} else {
-				fmt.Printf("[%s] Deleted: %s (removed from server)\n", timeNow(), name)
+				if kept {
+					fmt.Printf("[%s] Remote missing: %s (kept local repo, linked agents)\n", timeNow(), name)
+					changed = true
+					entry = state.Skills[name]
+					stopManaging = false
+				}
+			}
+			if stopManaging {
+				if err := detachLocalCopiesAfterRemoteDelete(state, repoPath, name); err != nil {
+					fmt.Fprintf(os.Stderr, "[%s] Error preserving agent copies for deleted %s: %v\n", timeNow(), name, err)
+					continue
+				}
+				if localRepoSkillExists(repoPath, name) {
+					fmt.Printf("[%s] Remote deleted: %s (agent copies preserved; removed from sync)\n", timeNow(), name)
+				} else {
+					fmt.Printf("[%s] Deleted: %s (removed from server and no local repo copy remains)\n", timeNow(), name)
+				}
 				delete(state.Skills, name)
 				changed = true
 				continue
@@ -410,14 +427,60 @@ func syncPollOnce(skillService *skill.SkillService) {
 	}
 }
 
+type remoteMissingResolution int
+
+const (
+	remoteMissingKeepManaged remoteMissingResolution = iota
+	remoteMissingStopManaging
+)
+
+func remoteMissingResolutionForStatus(status skill.SyncStatus) remoteMissingResolution {
+	switch status {
+	case skill.SyncStatusLocalChanges, skill.SyncStatusUploadBlocked, skill.SyncStatusUploaded:
+		return remoteMissingKeepManaged
+	default:
+		return remoteMissingStopManaging
+	}
+}
+
 func shouldProtectLocalFromRemote(status skill.SyncStatus) bool {
 	return status == skill.SyncStatusLocalChanges ||
 		status == skill.SyncStatusUploaded ||
 		status == skill.SyncStatusUploadBlocked
 }
 
-func shouldKeepLocalWhenRemoteMissing(status skill.SyncStatus) bool {
-	return shouldProtectLocalFromRemote(status)
+func preserveLocalRepoWhenRemoteMissing(state *skill.SyncState, repoPath, name string, entry skill.SyncSkillEntry) (bool, error) {
+	localHash, err := skill.ComputeDirectoryHash(filepath.Join(repoPath, name))
+	if err != nil {
+		return false, err
+	}
+	if localHash == "" {
+		return false, nil
+	}
+	if _, err := skill.LinkSkillForce(repoPath, name, state.Agents, nil); err != nil {
+		return false, err
+	}
+
+	if entry.Status != skill.SyncStatusUploaded {
+		entry.RemoteMd5 = ""
+		entry.ResolvedVersion = ""
+	}
+	entry.LocalHash = localHash
+	entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	state.Skills[name] = entry
+	return true, nil
+}
+
+func detachLocalCopiesAfterRemoteDelete(state *skill.SyncState, repoPath, name string) error {
+	if !localRepoSkillExists(repoPath, name) {
+		return nil
+	}
+	return skill.DetachSkillFromAllAgents(repoPath, name, state.Agents, nil)
+}
+
+func localRepoSkillExists(repoPath, name string) bool {
+	info, err := os.Stat(filepath.Join(repoPath, name))
+	return err == nil && info.IsDir()
 }
 
 func keepLocalAfterRemoteUpdate(entry skill.SyncSkillEntry, localHash string, result *skill.SkillQueryResult) skill.SyncSkillEntry {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -112,4 +113,40 @@ func TestUpdateSyncStateAfterUploadRecordsUploadedVersionAndMd5(t *testing.T) {
 	if got.LocalHash != localHash {
 		t.Fatalf("local hash = %q, want %q", got.LocalHash, localHash)
 	}
+}
+
+func TestDiscoverSkillDirsIncludesSymlinkDirectory(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real-skill")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "SKILL.md"), []byte("# Real Skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(root, "linked-skill")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "not-a-skill.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := discoverSkillDirs(root, entries)
+
+	assertStringInSlice(t, got, "linked-skill")
+}
+
+func assertStringInSlice(t *testing.T, values []string, want string) {
+	t.Helper()
+	for _, value := range values {
+		if value == want {
+			return
+		}
+	}
+	t.Fatalf("%q not found in %v", want, values)
 }

@@ -112,6 +112,58 @@ func TestUploadSkillSendsOverwriteQueryParam(t *testing.T) {
 	}
 }
 
+func TestUploadSkillFollowsRootSymlinkDirectory(t *testing.T) {
+	var zipData []byte
+	var uploadedFilename string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/admin/ai/skills/upload" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("parse multipart upload: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("read uploaded file: %v", err)
+		}
+		defer file.Close()
+		uploadedFilename = header.Filename
+		zipData, err = io.ReadAll(file)
+		if err != nil {
+			t.Fatalf("read upload body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	tmp := t.TempDir()
+	realDir := filepath.Join(tmp, "real-skill")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "SKILL.md"), []byte("# Real Skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(tmp, "linked-skill")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	nacosClient, err := newTestNacosClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewSkillService(nacosClient).UploadSkill(linkDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if uploadedFilename != "linked-skill.zip" {
+		t.Fatalf("uploaded filename = %s, want linked-skill.zip", uploadedFilename)
+	}
+	assertZipContains(t, zipData, "SKILL.md")
+}
+
 func TestSubmitSkillSendsFormParams(t *testing.T) {
 	var submitCalled bool
 
@@ -147,6 +199,20 @@ func TestSubmitSkillSendsFormParams(t *testing.T) {
 	if !submitCalled {
 		t.Fatal("submit was not called")
 	}
+}
+
+func assertZipContains(t *testing.T, data []byte, name string) {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	for _, f := range reader.File {
+		if f.Name == name {
+			return
+		}
+	}
+	t.Fatalf("zip entry %q not found", name)
 }
 
 func TestUpdateSkillScopeSendsParams(t *testing.T) {

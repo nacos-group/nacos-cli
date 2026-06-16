@@ -393,7 +393,7 @@ func extractZip(zipBytes []byte, targetDir string) error {
 
 // UploadSkill uploads a skill draft from local directory or a pre-built zip file.
 // If skillPath points to a .zip file it is uploaded directly; otherwise the
-// directory is packed into a zip on-the-fly (skillName/... structure).
+// directory is packed into a zip on-the-fly with files at the archive root.
 func (s *SkillService) UploadSkill(skillPath string, overwrite bool) error {
 	if err := s.client.EnsureTokenValid(); err != nil {
 		return err
@@ -414,17 +414,21 @@ func (s *SkillService) UploadSkill(skillPath string, overwrite bool) error {
 	} else {
 		// Pack directory into zip
 		skillName = filepath.Base(skillPath)
+		walkRoot, err := resolveDirectoryRoot(skillPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve skill directory: %w", err)
+		}
 		zipBuffer = new(bytes.Buffer)
 		zipWriter := zip.NewWriter(zipBuffer)
 
-		err := filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
+		err = filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.IsDir() {
 				return nil
 			}
-			relPath, err := filepath.Rel(skillPath, path)
+			relPath, err := filepath.Rel(walkRoot, path)
 			if err != nil {
 				return err
 			}

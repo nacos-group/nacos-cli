@@ -49,9 +49,10 @@ var skillSyncAgentListCmd = &cobra.Command{
 }
 
 var skillSyncAgentAddCmd = &cobra.Command{
-	Use:   "add <name> <path>",
-	Short: "Add a custom agent directory",
-	Args:  cobra.ExactArgs(2),
+	Use:               "add <name> <path>",
+	Short:             "Add a custom agent directory",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: completeDirArg(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runSkillSyncAgentAdd(args[0], args[1]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)

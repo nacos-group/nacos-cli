@@ -21,10 +21,11 @@ var publishAll bool
 //
 //	skill-upload  -> skill-review  -> skill-release
 var publishSkillCmd = &cobra.Command{
-	Use:   "skill-publish [skillPath]",
-	Short: "[DEPRECATED] Upload then submit a skill draft for review (use skill-upload/skill-review/skill-release instead)",
-	Long:  help.SkillPublish.FormatForCLI("nacos-cli"),
-	Args:  cobra.MaximumNArgs(1),
+	Use:               "skill-publish [skillPath]",
+	Short:             "[DEPRECATED] Upload then submit a skill draft for review (use skill-upload/skill-review/skill-release instead)",
+	Long:              help.SkillPublish.FormatForCLI("nacos-cli"),
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePathArg(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		printPublishDeprecationWarning()
 

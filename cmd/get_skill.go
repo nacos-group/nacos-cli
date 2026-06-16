@@ -118,5 +118,6 @@ func init() {
 	getSkillCmd.Flags().StringVarP(&getSkillOutput, "output", "o", "", "Output directory (default: ~/.skills)")
 	getSkillCmd.Flags().StringVar(&getSkillVersion, "version", "", "Specific version to download (e.g. v1, v2)")
 	getSkillCmd.Flags().StringVar(&getSkillLabel, "label", "", "Route label to resolve version (e.g. latest, stable)")
+	_ = getSkillCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(getSkillCmd)
 }

@@ -160,6 +160,33 @@ func TestComputeDirectoryHash_Deterministic(t *testing.T) {
 	}
 }
 
+func TestComputeDirectoryHash_FollowsRootSymlinkDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	realDir := filepath.Join(tmp, "real-skill")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "SKILL.md"), []byte("# Test Skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(tmp, "linked-skill")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	realHash, err := ComputeDirectoryHash(realDir)
+	if err != nil {
+		t.Fatalf("ComputeDirectoryHash(real) error = %v", err)
+	}
+	linkHash, err := ComputeDirectoryHash(linkDir)
+	if err != nil {
+		t.Fatalf("ComputeDirectoryHash(link) error = %v", err)
+	}
+	if linkHash != realHash {
+		t.Fatalf("hash through symlink = %q, want %q", linkHash, realHash)
+	}
+}
+
 func TestComputeDirectoryHash_DiffOnChange(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Original"), 0644)

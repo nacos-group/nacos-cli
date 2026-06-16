@@ -58,116 +58,297 @@ func (t *Terminal) getPrompt() string {
 	return "\033[32mnacos>\033[0m "
 }
 
-// completer provides command auto-completion
-func completer() *readline.PrefixCompleter {
-	return readline.NewPrefixCompleter(
-		readline.PcItem("help"),
-		readline.PcItem("quit"),
-		readline.PcItem("skill-list",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--name"),
-			readline.PcItem("--page"),
-			readline.PcItem("--size"),
-			readline.PcItem("--output"),
-		),
-		readline.PcItem("skill-describe",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--output"),
-		),
-		readline.PcItem("skill-get",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-		),
-		readline.PcItem("skill-upload",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--all"),
-			readline.PcItem("--overwrite"),
-		),
-		readline.PcItem("skill-publish",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--all"),
-		),
-		readline.PcItem("skill-review",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--version"),
-		),
-		readline.PcItem("skill-release",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--version"),
-			readline.PcItem("--update-latest"),
-		),
-		readline.PcItem("skill-scope",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--scope"),
-		),
-		readline.PcItem("skill-tags",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--tags"),
-		),
-		readline.PcItem("agentspec-list",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--name"),
-			readline.PcItem("--page"),
-			readline.PcItem("--size"),
-			readline.PcItem("--output"),
-		),
-		readline.PcItem("agentspec-describe",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--output"),
-		),
-		readline.PcItem("agentspec-get",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-		),
-		readline.PcItem("agentspec-upload",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--all"),
-		),
-		readline.PcItem("agentspec-publish",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--all"),
-		),
-		readline.PcItem("agentspec-review",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--version"),
-		),
-		readline.PcItem("agentspec-release",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--version"),
-			readline.PcItem("--update-latest"),
-		),
-		readline.PcItem("config-list",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-		),
-		readline.PcItem("config-get",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-		),
-		readline.PcItem("config-set",
-			readline.PcItem("--help"),
-			readline.PcItem("-h"),
-			readline.PcItem("--file"),
-			readline.PcItem("-f"),
-		),
-		readline.PcItem("clear"),
-		readline.PcItem("server"),
-		readline.PcItem("ns"),
-	)
+// completer provides command, flag, and path auto-completion.
+func completer() readline.AutoCompleter {
+	return terminalCompleter{commands: interactiveCompletionSpecs()}
+}
+
+type completionSpec struct {
+	Flags          []string
+	PathFlags      map[string]bool
+	PathArgIndexes map[int]bool
+}
+
+type terminalCompleter struct {
+	commands map[string]completionSpec
+}
+
+func interactiveCompletionSpecs() map[string]completionSpec {
+	return map[string]completionSpec{
+		"help":   {},
+		"quit":   {},
+		"clear":  {},
+		"server": {},
+		"ns":     {},
+		"skill-list": {
+			Flags: []string{"--help", "-h", "--name", "--page", "--size", "--output"},
+		},
+		"skill-describe": {
+			Flags: []string{"--help", "-h", "--output"},
+		},
+		"skill-get": {
+			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o"},
+			PathFlags: pathFlags("--output", "-o"),
+		},
+		"skill-upload": {
+			Flags:          []string{"--help", "-h", "--all"},
+			PathArgIndexes: pathArgIndexes(0),
+		},
+		"skill-publish": {
+			Flags:          []string{"--help", "-h", "--all"},
+			PathArgIndexes: pathArgIndexes(0),
+		},
+		"skill-review": {
+			Flags: []string{"--help", "-h", "--version"},
+		},
+		"skill-release": {
+			Flags: []string{"--help", "-h", "--version", "--update-latest"},
+		},
+		"skill-scope": {
+			Flags: []string{"--help", "-h", "--scope"},
+		},
+		"skill-tags": {
+			Flags: []string{"--help", "-h", "--tags"},
+		},
+		"agentspec-list": {
+			Flags: []string{"--help", "-h", "--name", "--page", "--size", "--output"},
+		},
+		"agentspec-describe": {
+			Flags: []string{"--help", "-h", "--output"},
+		},
+		"agentspec-get": {
+			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o"},
+			PathFlags: pathFlags("--output", "-o"),
+		},
+		"agentspec-upload": {
+			Flags:          []string{"--help", "-h", "--all"},
+			PathArgIndexes: pathArgIndexes(0),
+		},
+		"agentspec-publish": {
+			Flags:          []string{"--help", "-h", "--all"},
+			PathArgIndexes: pathArgIndexes(0),
+		},
+		"agentspec-review": {
+			Flags: []string{"--help", "-h", "--version"},
+		},
+		"agentspec-release": {
+			Flags: []string{"--help", "-h", "--version", "--update-latest"},
+		},
+		"config-list": {
+			Flags: []string{"--help", "-h"},
+		},
+		"config-get": {
+			Flags: []string{"--help", "-h"},
+		},
+		"config-set": {
+			Flags:     []string{"--help", "-h", "--file", "-f"},
+			PathFlags: pathFlags("--file", "-f"),
+		},
+	}
+}
+
+func pathFlags(flags ...string) map[string]bool {
+	res := make(map[string]bool, len(flags))
+	for _, flag := range flags {
+		res[flag] = true
+	}
+	return res
+}
+
+func pathArgIndexes(indexes ...int) map[int]bool {
+	res := make(map[int]bool, len(indexes))
+	for _, idx := range indexes {
+		res[idx] = true
+	}
+	return res
+}
+
+func (c terminalCompleter) Do(line []rune, pos int) ([][]rune, int) {
+	if pos > len(line) {
+		pos = len(line)
+	}
+	text := string(line[:pos])
+	token, tokenStart := currentCompletionToken(text)
+	completingNewToken := tokenStart == len(text)
+	tokens := strings.Fields(text)
+
+	if len(tokens) == 0 || (len(tokens) == 1 && !completingNewToken && tokenStart == 0) {
+		return completionSuffixes(commandNames(c.commands), token)
+	}
+
+	cmdName := tokens[0]
+	spec, ok := c.commands[cmdName]
+	if !ok {
+		return nil, 0
+	}
+
+	if expectsPathCompletion(spec, tokens, token, completingNewToken) {
+		pathPart := token
+		if flagPath, ok := inlinePathFlagValue(spec, token); ok {
+			pathPart = flagPath
+		}
+		matches, offset := pathCompletionSuffixes(pathPart)
+		return matches, offset
+	}
+
+	if strings.HasPrefix(token, "-") {
+		return completionSuffixes(spec.Flags, token)
+	}
+
+	return nil, 0
+}
+
+func currentCompletionToken(text string) (string, int) {
+	idx := strings.LastIndexAny(text, " \t")
+	if idx < 0 {
+		return text, 0
+	}
+	return text[idx+1:], idx + 1
+}
+
+func commandNames(commands map[string]completionSpec) []string {
+	names := make([]string, 0, len(commands))
+	for name := range commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func completionSuffixes(candidates []string, prefix string) ([][]rune, int) {
+	var matches [][]rune
+	for _, candidate := range candidates {
+		if !strings.HasPrefix(candidate, prefix) {
+			continue
+		}
+		suffix := candidate[len(prefix):]
+		if suffix == "" {
+			suffix = " "
+		}
+		matches = append(matches, []rune(suffix))
+	}
+	return matches, len([]rune(prefix))
+}
+
+func expectsPathCompletion(spec completionSpec, tokens []string, token string, completingNewToken bool) bool {
+	if _, ok := inlinePathFlagValue(spec, token); ok {
+		return true
+	}
+	if completingNewToken && len(tokens) > 0 && spec.PathFlags[tokens[len(tokens)-1]] {
+		return true
+	}
+	if !completingNewToken && len(tokens) > 1 && spec.PathFlags[tokens[len(tokens)-2]] {
+		return true
+	}
+	if strings.HasPrefix(token, "-") {
+		return false
+	}
+	return spec.PathArgIndexes[positionalIndex(tokens, completingNewToken)]
+}
+
+func inlinePathFlagValue(spec completionSpec, token string) (string, bool) {
+	for flag := range spec.PathFlags {
+		prefix := flag + "="
+		if strings.HasPrefix(token, prefix) {
+			return strings.TrimPrefix(token, prefix), true
+		}
+	}
+	return "", false
+}
+
+func positionalIndex(tokens []string, completingNewToken bool) int {
+	if len(tokens) <= 1 {
+		return 0
+	}
+	limit := len(tokens)
+	if !completingNewToken {
+		limit--
+	}
+	positional := 0
+	for i := 1; i < limit; i++ {
+		token := tokens[i]
+		if strings.HasPrefix(token, "-") {
+			if !isInteractiveBooleanFlag(token) && !strings.Contains(token, "=") && i+1 < limit {
+				i++
+			}
+			continue
+		}
+		positional++
+	}
+	return positional
+}
+
+func isInteractiveBooleanFlag(flag string) bool {
+	switch flag {
+	case "--help", "-h", "--all", "--update-latest":
+		return true
+	default:
+		return false
+	}
+}
+
+func pathCompletionSuffixes(prefix string) ([][]rune, int) {
+	dirPart, basePart := splitPathPrefix(prefix)
+	readDir := expandCompletionDir(dirPart)
+	entries, err := os.ReadDir(readDir)
+	if err != nil {
+		return nil, 0
+	}
+
+	matches := make([]string, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, basePart) {
+			continue
+		}
+		if !strings.HasPrefix(basePart, ".") && strings.HasPrefix(name, ".") {
+			continue
+		}
+		suffix := name[len(basePart):]
+		if entry.IsDir() {
+			suffix += string(os.PathSeparator)
+		}
+		matches = append(matches, suffix)
+	}
+	sort.Strings(matches)
+
+	result := make([][]rune, 0, len(matches))
+	for _, match := range matches {
+		result = append(result, []rune(match))
+	}
+	return result, len([]rune(basePart))
+}
+
+func splitPathPrefix(prefix string) (string, string) {
+	if prefix == "" {
+		return ".", ""
+	}
+	if strings.HasSuffix(prefix, string(os.PathSeparator)) {
+		return prefix, ""
+	}
+	dir := filepath.Dir(prefix)
+	base := filepath.Base(prefix)
+	if dir == "." && !strings.Contains(prefix, string(os.PathSeparator)) {
+		return ".", base
+	}
+	return dir, base
+}
+
+func expandCompletionDir(dir string) string {
+	if dir == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return home
+		}
+		return dir
+	}
+	if strings.HasPrefix(dir, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, dir[2:])
+		}
+	}
+	return dir
 }
 
 // Start starts the interactive terminal
@@ -298,6 +479,38 @@ func parseCommandArgs(input string) (cmd string, args []string) {
 	}
 
 	return cmd, args
+}
+
+// parseSkillUploadOverwrite extracts --overwrite true|false from skill-upload args.
+func parseSkillUploadOverwrite(args []string) ([]string, bool, error) {
+	overwrite := false
+	filtered := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		value := ""
+		if arg == "--overwrite" {
+			if i+1 >= len(args) {
+				return nil, false, fmt.Errorf("--overwrite must be true or false")
+			}
+			i++
+			value = args[i]
+		} else if strings.HasPrefix(arg, "--overwrite=") {
+			value = strings.TrimPrefix(arg, "--overwrite=")
+		} else {
+			filtered = append(filtered, arg)
+			continue
+		}
+
+		switch value {
+		case "false":
+			overwrite = false
+		case "true":
+			overwrite = true
+		default:
+			return nil, false, fmt.Errorf("--overwrite must be true or false")
+		}
+	}
+	return filtered, overwrite, nil
 }
 
 // handleCommand handles user command
@@ -897,17 +1110,7 @@ func (t *Terminal) getSkill(args []string) {
 // uploadSkill uploads a skill draft (editing state)
 func (t *Terminal) uploadSkill(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: skill-upload <skillPath> [--overwrite true|false] or skill-upload --all <folder> [--overwrite true|false]")
-		return
-	}
-
-	args, overwrite, err := parseSkillUploadOverwrite(args)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-	if len(args) == 0 {
-		fmt.Println("Usage: skill-upload <skillPath> [--overwrite true|false] or skill-upload --all <folder> [--overwrite true|false]")
+		fmt.Println("Usage: skill-upload <skillPath> or skill-upload --all <folder>")
 		return
 	}
 
@@ -935,10 +1138,10 @@ func (t *Terminal) uploadSkill(args []string) {
 	if allFlagIndex >= 0 {
 		if folderPath == "" {
 			fmt.Println("Error: folder path required for --all flag")
-			fmt.Println("Usage: skill-upload --all <folder> [--overwrite true|false] or skill-upload <folder> --all [--overwrite true|false]")
+			fmt.Println("Usage: skill-upload --all <folder> or skill-upload <folder> --all")
 			return
 		}
-		t.uploadAllSkills(folderPath, overwrite)
+		t.uploadAllSkills(folderPath)
 		return
 	}
 
@@ -964,7 +1167,7 @@ func (t *Terminal) uploadSkill(args []string) {
 
 	fmt.Printf("Uploading skill: %s...\n", skillPath)
 
-	err = t.skillService.UploadSkill(skillPath, overwrite)
+	err := t.skillService.UploadSkill(skillPath, false)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -974,39 +1177,8 @@ func (t *Terminal) uploadSkill(args []string) {
 	fmt.Printf("Tip: Use 'skill-review %s' to submit the draft for review.\n", filepath.Base(skillPath))
 }
 
-func parseSkillUploadOverwrite(args []string) ([]string, bool, error) {
-	overwrite := false
-	filtered := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		value := ""
-		if arg == "--overwrite" {
-			if i+1 >= len(args) {
-				return nil, false, fmt.Errorf("--overwrite must be true or false")
-			}
-			i++
-			value = args[i]
-		} else if strings.HasPrefix(arg, "--overwrite=") {
-			value = strings.TrimPrefix(arg, "--overwrite=")
-		} else {
-			filtered = append(filtered, arg)
-			continue
-		}
-
-		switch value {
-		case "false":
-			overwrite = false
-		case "true":
-			overwrite = true
-		default:
-			return nil, false, fmt.Errorf("--overwrite must be true or false")
-		}
-	}
-	return filtered, overwrite, nil
-}
-
 // uploadAllSkills publishes all skill drafts in a directory
-func (t *Terminal) uploadAllSkills(folderPath string, overwrite bool) {
+func (t *Terminal) uploadAllSkills(folderPath string) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(folderPath, "~/") {
 		homeDir, err := os.UserHomeDir()
@@ -1064,7 +1236,7 @@ func (t *Terminal) uploadAllSkills(folderPath string, overwrite bool) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		err := t.skillService.UploadSkill(skillPath, overwrite)
+		err := t.skillService.UploadSkill(skillPath, false)
 		if err != nil {
 			fmt.Printf("Publish failed: %v\n", err)
 			failedCount++
@@ -1253,7 +1425,7 @@ func (t *Terminal) publishLegacy(args []string) {
 			return
 		}
 		// Upload all first, then submit all drafts for review.
-		t.uploadAllSkills(folderPath, false)
+		t.uploadAllSkills(folderPath)
 		t.reviewAllSkills(folderPath)
 		return
 	}

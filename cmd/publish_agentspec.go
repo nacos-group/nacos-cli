@@ -22,10 +22,11 @@ var agentSpecPublishAll bool
 //
 //	agentspec-upload  -> agentspec-review  -> agentspec-release
 var publishAgentSpecCmd = &cobra.Command{
-	Use:   "agentspec-publish [agentSpecPath]",
-	Short: "[DEPRECATED] Upload then submit an agent spec draft for review (use agentspec-upload/agentspec-review/agentspec-release instead)",
-	Long:  help.AgentSpecPublish.FormatForCLI("nacos-cli"),
-	Args:  cobra.MaximumNArgs(1),
+	Use:               "agentspec-publish [agentSpecPath]",
+	Short:             "[DEPRECATED] Upload then submit an agent spec draft for review (use agentspec-upload/agentspec-review/agentspec-release instead)",
+	Long:              help.AgentSpecPublish.FormatForCLI("nacos-cli"),
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePathArg(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		printAgentSpecPublishDeprecationWarning()
 

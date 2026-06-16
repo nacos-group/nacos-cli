@@ -69,5 +69,6 @@ var stopSkillCmd = &cobra.Command{
 
 func init() {
 	stopSkillCmd.Flags().StringVarP(&stopSkillOutput, "output", "o", "", "Output directory (default: ~/.skills)")
+	_ = stopSkillCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(stopSkillCmd)
 }

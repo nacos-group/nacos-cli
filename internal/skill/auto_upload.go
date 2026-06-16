@@ -150,7 +150,7 @@ func isSkillNotFoundError(err error) bool {
 // records the new lastUploadedMd5 in the state entry.
 func PerformAutoUpload(state *SyncState, entry *SyncSkillEntry, repoPath string, skillService *SkillService, currentHash string) error {
 	repoSkillDir := skillRepoSkillPath(repoPath, entry.Name)
-	if err := skillService.UploadSkill(repoSkillDir); err != nil {
+	if err := skillService.UploadSkill(repoSkillDir, true); err != nil {
 		return fmt.Errorf("upload: %w", err)
 	}
 	return RecordUploadedSkill(state, entry, skillService, currentHash)

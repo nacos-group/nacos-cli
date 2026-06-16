@@ -29,8 +29,12 @@ var hashExcludeFiles = map[string]bool{
 // then hash (relative_path + NULL + file_content + NULL) for each file in order.
 // Returns empty string if directory doesn't exist or is empty.
 func ComputeDirectoryHash(dir string) (string, error) {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	walkRoot, err := resolveDirectoryRoot(dir)
+	if os.IsNotExist(err) {
 		return "", nil
+	}
+	if err != nil {
+		return "", err
 	}
 
 	// Collect all file paths with their relative paths
@@ -40,12 +44,12 @@ func ComputeDirectoryHash(dir string) (string, error) {
 	}
 	var files []fileEntry
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, err := filepath.Rel(dir, path)
+		relPath, err := filepath.Rel(walkRoot, path)
 		if err != nil {
 			return err
 		}
@@ -106,6 +110,21 @@ func ComputeDirectoryHash(dir string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func resolveDirectoryRoot(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", path)
+	}
+	return resolved, nil
 }
 
 func stripSkillVersionFrontmatter(data []byte) []byte {

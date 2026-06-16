@@ -64,5 +64,6 @@ func readSetConfigContent() (string, error) {
 
 func init() {
 	setConfigCmd.Flags().StringVarP(&setConfigFile, "file", "f", "", "Path to config file (default: read from stdin)")
+	_ = setConfigCmd.MarkFlagFilename("file")
 	rootCmd.AddCommand(setConfigCmd)
 }

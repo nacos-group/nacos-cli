@@ -15,10 +15,11 @@ var uploadAll bool
 var uploadOverwrite bool
 
 var uploadSkillCmd = &cobra.Command{
-	Use:   "skill-upload [skillPath]",
-	Short: "Upload a skill to Nacos (as ZIP, creates an editing draft)",
-	Long:  help.SkillUpload.FormatForCLI("nacos-cli"),
-	Args:  cobra.MaximumNArgs(1),
+	Use:               "skill-upload [skillPath]",
+	Short:             "Upload a skill to Nacos (as ZIP, creates an editing draft)",
+	Long:              help.SkillUpload.FormatForCLI("nacos-cli"),
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePathArg(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			fmt.Fprintf(os.Stderr, "Error: skill path required\n")
@@ -98,16 +99,7 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService, overwr
 	entries, err := os.ReadDir(folderPath)
 	checkError(err)
 
-	var skillDirs []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		skillMDPath := filepath.Join(folderPath, entry.Name(), "SKILL.md")
-		if _, err := os.Stat(skillMDPath); err == nil {
-			skillDirs = append(skillDirs, entry.Name())
-		}
-	}
+	skillDirs := discoverSkillDirs(folderPath, entries)
 
 	if len(skillDirs) == 0 {
 		fmt.Println("No skills found (directories with SKILL.md)")
@@ -150,6 +142,22 @@ func uploadAllSkills(folderPath string, skillService *skill.SkillService, overwr
 	fmt.Printf("Total: %d\n", len(skillDirs))
 	fmt.Println()
 	fmt.Println("Tip: Use 'skill-review <skillName>' to submit a draft for review.")
+}
+
+func discoverSkillDirs(folderPath string, entries []os.DirEntry) []string {
+	var skillDirs []string
+	for _, entry := range entries {
+		skillPath := filepath.Join(folderPath, entry.Name())
+		info, err := os.Stat(skillPath)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		skillMDPath := filepath.Join(skillPath, "SKILL.md")
+		if _, err := os.Stat(skillMDPath); err == nil {
+			skillDirs = append(skillDirs, entry.Name())
+		}
+	}
+	return skillDirs
 }
 
 func init() {

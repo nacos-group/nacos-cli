@@ -307,6 +307,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&scheme, "scheme", "", "Protocol scheme: http or https (default: http)")
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	rootCmd.PersistentFlags().StringVar(&profileName, "profile", "", "Profile name (e.g., dev, prod). Loads ~/.nacos-cli/<profile>.conf")
+	_ = rootCmd.MarkPersistentFlagFilename("config")
 
 	// Global flags - legacy style (for backward compatibility)
 	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")

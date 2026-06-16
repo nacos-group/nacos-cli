@@ -113,6 +113,7 @@ var statusSkillCmd = &cobra.Command{
 
 func init() {
 	statusSkillCmd.Flags().StringVarP(&statusSkillOutput, "output", "o", "", "Output directory (default: ~/.skills)")
+	_ = statusSkillCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(statusSkillCmd)
 }
 

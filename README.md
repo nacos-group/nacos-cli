@@ -16,9 +16,21 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 
 ## Installation
 
+### Official Installer
+
+Install `nacos-cli` with the Nacos installer:
+
+```bash
+curl -fsSL https://nacos.io/nacos-installer.sh | bash -s -- --cli
+```
+
+The installer adds `~/.nacos/bin` to your shell PATH and configures shell
+completion for zsh, bash, or fish when possible.
+
 ### npm / npx
 
-Use `npx` to run directly without installation:
+After the npm package is published, use `npx` to run directly without
+installation:
 
 ```bash
 npx @nacos-group/cli --help
@@ -48,6 +60,32 @@ go build -o nacos-cli
 
 # Or use make
 make build
+```
+
+## Shell Completion
+
+Enable shell completion once, then commands, flags, and path arguments such as
+`skill-upload <path>`, `agentspec-upload <path>`, `--config`, `--file`, and
+`--output` can be completed with Tab:
+
+```bash
+# Bash
+source <(nacos-cli completion bash)
+
+# Zsh
+source <(nacos-cli completion zsh)
+
+# Fish
+nacos-cli completion fish | source
+```
+
+For persistent setup, write the generated script to your shell's completion
+directory:
+
+```bash
+nacos-cli completion zsh > "${fpath[1]}/_nacos-cli"
+nacos-cli completion bash > /usr/local/etc/bash_completion.d/nacos-cli
+nacos-cli completion fish > ~/.config/fish/completions/nacos-cli.fish
 ```
 
 ## Quick Start

@@ -73,5 +73,6 @@ var unsubscribeSkillCmd = &cobra.Command{
 func init() {
 	unsubscribeSkillCmd.Flags().StringVarP(&unsubscribeSkillOutput, "output", "o", "", "Output directory (default: ~/.skills)")
 	unsubscribeSkillCmd.Flags().BoolVar(&unsubscribeSkillPurge, "purge", false, "Remove local skill files after unsubscribing")
+	_ = unsubscribeSkillCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(unsubscribeSkillCmd)
 }

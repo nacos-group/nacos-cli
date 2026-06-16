@@ -167,6 +167,7 @@ func init() {
 	subscribeSkillCmd.Flags().StringVar(&subscribeSkillLabel, "label", "", "Route label to resolve version (e.g. latest, stable)")
 	subscribeSkillCmd.Flags().StringVar(&subscribeSkillInterval, "interval", "30s", "Poll interval (e.g. 10s, 1m, 5m)")
 	subscribeSkillCmd.Flags().BoolVar(&subscribeSkillForeground, "foreground", false, "Run watcher in foreground instead of background")
+	_ = subscribeSkillCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(subscribeSkillCmd)
 }
 

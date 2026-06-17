@@ -25,8 +25,12 @@ func TestResolveAgentConflict_UseAgent_ThreeAgents(t *testing.T) {
 
 	createRealSkill := func(root, content string) {
 		dir := filepath.Join(root, "pdf")
-		os.MkdirAll(dir, 0755)
-		os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	createRealSkill(codex, "CODEX VERSION (chosen as new source)")
 	createRealSkill(claude, "CLAUDE VERSION (conflict)")
@@ -110,12 +114,10 @@ func TestResolveAgentConflict_UseAgent_MixedSymlinkAndConflict(t *testing.T) {
 	}
 
 	// claude has a conflicting real dir.
-	os.MkdirAll(filepath.Join(claude, "pdf"), 0755)
-	os.WriteFile(filepath.Join(claude, "pdf", "SKILL.md"), []byte("CLAUDE V1"), 0644)
+	writeSkillUnder(t, claude, "pdf", "CLAUDE V1")
 
 	// qoder will be picked as source.
-	os.MkdirAll(filepath.Join(qoder, "pdf"), 0755)
-	os.WriteFile(filepath.Join(qoder, "pdf", "SKILL.md"), []byte("QODER V1 (NEW SOURCE)"), 0644)
+	writeSkillUnder(t, qoder, "pdf", "QODER V1 (NEW SOURCE)")
 
 	state := &SyncState{
 		Version: SyncStateVersion,

@@ -322,7 +322,6 @@ func syncPollOnce(skillService *skill.SkillService) {
 				if entryChanged {
 					entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 					state.Skills[name] = entry
-					changed = true
 				}
 				if verbose {
 					fmt.Printf("[%s] Unchanged: %s (content hash matched)\n", timeNow(), name)

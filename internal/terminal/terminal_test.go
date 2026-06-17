@@ -270,7 +270,11 @@ func TestCompleterCompletesPathArgument(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldWd)
+	defer func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Fatal(err)
+		}
+	}()
 
 	c := completer()
 	line := []rune("skill-upload alp")
@@ -320,7 +324,11 @@ func TestCompleterCompletesPathFlagValue(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldWd)
+	defer func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Fatal(err)
+		}
+	}()
 
 	c := completer()
 	line := []rune("config-set data DEFAULT_GROUP --file conf")
@@ -344,7 +352,11 @@ func TestCompleterCompletesInlinePathFlagValue(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldWd)
+	defer func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Fatal(err)
+		}
+	}()
 
 	c := completer()
 	line := []rune("config-set data DEFAULT_GROUP --file=conf")

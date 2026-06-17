@@ -195,10 +195,6 @@ func agentsDisplay(skillName string, entry skill.SyncSkillEntry, state *skill.Sy
 	return strings.Join(parts, ",")
 }
 
-func printSyncDaemonStatus() {
-	printSyncDaemonStatusWithOptions(syncStatusPrintOptions{})
-}
-
 func printSyncDaemonStatusWithOptions(opts syncStatusPrintOptions) {
 	if opts.inactive {
 		active := opts.activeProfile

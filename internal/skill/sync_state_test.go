@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadSyncState_Empty(t *testing.T) {
 	// Point to a temp dir so it won't find a real state file
 	origHome := os.Getenv("HOME")
@@ -15,7 +29,7 @@ func TestLoadSyncState_Empty(t *testing.T) {
 
 	// Ensure config dir exists
 	configDir := filepath.Join(tmpDir, ".nacos-cli")
-	os.MkdirAll(configDir, 0755)
+	mustMkdirAll(t, configDir)
 
 	state, err := LoadSyncState()
 	if err != nil {
@@ -138,9 +152,9 @@ func TestComputeDirectoryHash_Deterministic(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create some files
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Test Skill"), 0644)
-	os.MkdirAll(filepath.Join(dir, "assets"), 0755)
-	os.WriteFile(filepath.Join(dir, "assets", "prompt.txt"), []byte("hello world"), 0644)
+	mustWriteFile(t, filepath.Join(dir, "SKILL.md"), []byte("# Test Skill"))
+	mustMkdirAll(t, filepath.Join(dir, "assets"))
+	mustWriteFile(t, filepath.Join(dir, "assets", "prompt.txt"), []byte("hello world"))
 
 	hash1, err := ComputeDirectoryHash(dir)
 	if err != nil {
@@ -189,12 +203,12 @@ func TestComputeDirectoryHash_FollowsRootSymlinkDirectory(t *testing.T) {
 
 func TestComputeDirectoryHash_DiffOnChange(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Original"), 0644)
+	mustWriteFile(t, filepath.Join(dir, "SKILL.md"), []byte("# Original"))
 
 	hash1, _ := ComputeDirectoryHash(dir)
 
 	// Modify file
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Modified"), 0644)
+	mustWriteFile(t, filepath.Join(dir, "SKILL.md"), []byte("# Modified"))
 
 	hash2, _ := ComputeDirectoryHash(dir)
 
@@ -280,13 +294,13 @@ version: remote
 
 func TestComputeDirectoryHash_ExcludesGit(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Test"), 0644)
+	mustWriteFile(t, filepath.Join(dir, "SKILL.md"), []byte("# Test"))
 
 	hash1, _ := ComputeDirectoryHash(dir)
 
 	// Add .git directory (should be excluded)
-	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
-	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("git stuff"), 0644)
+	mustMkdirAll(t, filepath.Join(dir, ".git"))
+	mustWriteFile(t, filepath.Join(dir, ".git", "config"), []byte("git stuff"))
 
 	hash2, _ := ComputeDirectoryHash(dir)
 
@@ -302,7 +316,7 @@ func TestSyncState_SaveLoadRoundTrip(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	configDir := filepath.Join(tmpDir, ".nacos-cli")
-	os.MkdirAll(configDir, 0755)
+	mustMkdirAll(t, configDir)
 
 	state := &SyncState{
 		Version: SyncStateVersion,

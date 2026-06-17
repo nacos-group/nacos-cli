@@ -155,9 +155,7 @@ func TestResolveAgentConflict_UseRepo(t *testing.T) {
 	writeSkillUnder(t, repo, "demo", "REPO VERSION")
 
 	agentRoot := t.TempDir()
-	conflictDir := filepath.Join(agentRoot, "demo")
-	os.MkdirAll(conflictDir, 0755)
-	os.WriteFile(filepath.Join(conflictDir, "SKILL.md"), []byte("AGENT VERSION"), 0644)
+	writeSkillUnder(t, agentRoot, "demo", "AGENT VERSION")
 
 	state := &SyncState{
 		Version: SyncStateVersion,
@@ -200,9 +198,7 @@ func TestResolveAgentConflict_UseAgent(t *testing.T) {
 	writeSkillUnder(t, repo, "demo", "REPO VERSION")
 
 	agentRoot := t.TempDir()
-	conflictDir := filepath.Join(agentRoot, "demo")
-	os.MkdirAll(conflictDir, 0755)
-	os.WriteFile(filepath.Join(conflictDir, "SKILL.md"), []byte("AGENT VERSION"), 0644)
+	writeSkillUnder(t, agentRoot, "demo", "AGENT VERSION")
 
 	state := &SyncState{
 		Version: SyncStateVersion,

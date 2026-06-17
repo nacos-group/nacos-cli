@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,8 +190,11 @@ func chooseNacosOrLocalSource(skillName string, sources []localSkillSource, auto
 	if ans == "" || ans == "1" {
 		return skillSourceChoiceNacos, nil, nil
 	}
-	idx := 0
-	fmt.Sscanf(ans, "%d", &idx)
+	idx, err := strconv.Atoi(ans)
+	if err != nil {
+		fmt.Println("Invalid choice.")
+		return skillSourceChoiceExit, nil, nil
+	}
 	if idx == exitChoice {
 		return skillSourceChoiceExit, nil, nil
 	}
@@ -238,8 +242,10 @@ func chooseLocalSourceOnly(skillName string, sources []localSkillSource, autoUpl
 	if ans == "" {
 		return nil, nil
 	}
-	idx := 0
-	fmt.Sscanf(ans, "%d", &idx)
+	idx, err := strconv.Atoi(ans)
+	if err != nil {
+		return nil, nil
+	}
 	if idx >= 1 && idx <= len(sources) {
 		return &sources[idx-1], nil
 	}

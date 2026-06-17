@@ -313,11 +313,15 @@ nacos> skill-get skill-creator
 
 #### Upload Skill
 
-Upload a skill from local directory (creates or updates the `editing` version):
+Upload a skill from local directory as an `editing` draft. By default, uploads
+do not overwrite an existing draft; pass `--overwrite true` to replace it.
 
 ```bash
 # Upload single skill
 nacos-cli skill-upload /path/to/skill -s 127.0.0.1:8848 -u nacos -p nacos
+
+# Upload and overwrite an existing draft
+nacos-cli skill-upload /path/to/skill --overwrite true
 
 # Upload all skills in a directory
 nacos-cli skill-upload --all /path/to/skills/folder
@@ -703,6 +707,8 @@ MIT License
 
 ### Next Release
 
+- Added `skill-upload --overwrite true|false` to control whether uploading a
+  skill replaces an existing draft. The default remains `false`.
 - Fixed `skill-upload` and `agentspec-upload` creating ZIP archives with an
   extra directory prefix, causing server-side extraction failures
   ([#46](https://github.com/nacos-group/nacos-cli/issues/46))

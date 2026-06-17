@@ -54,6 +54,10 @@ var skillSyncAgentAddCmd = &cobra.Command{
 	Args:              cobra.ExactArgs(2),
 	ValidArgsFunction: completeDirArg(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		if err := runSkillSyncAgentAdd(args[0], args[1]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

@@ -830,6 +830,12 @@ func TestSkillSyncStartHasNonInteractiveFlag(t *testing.T) {
 	}
 }
 
+func TestSkillSyncStartDoesNotHaveAllFlag(t *testing.T) {
+	if flag := skillSyncStartCmd.Flags().Lookup("all"); flag != nil {
+		t.Fatal("start command should not expose --all; use add --all for bulk membership")
+	}
+}
+
 func TestDecideStartConflictsNonInteractiveSkips(t *testing.T) {
 	decision := decideStartConflicts([]startConflict{
 		{Name: "demo", Reason: "local differs from Nacos"},

@@ -125,3 +125,50 @@ func TestRunSkillSyncAddLocalFromAgentLinksAllAgents(t *testing.T) {
 		t.Fatalf("conflict agents = %v, want none", entry.ConflictAgents)
 	}
 }
+
+func TestRunSkillSyncAddLocalAllLinksRepoSkills(t *testing.T) {
+	withTempHome(t)
+	home := os.Getenv("HOME")
+
+	repoPath, err := skill.EnsureSkillRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkillFile(t, repoPath, "alpha", "SKILL.md", "ALPHA")
+	writeSkillFile(t, repoPath, "beta", "SKILL.md", "BETA")
+
+	agentPath := filepath.Join(home, ".codex", "skills")
+	state := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeLocal,
+		Label:   "latest",
+		Repo:    repoPath,
+		Agents: []skill.AgentDir{
+			{Name: "codex", Path: agentPath},
+		},
+		Skills: map[string]skill.SyncSkillEntry{},
+	}
+	if err := skill.SaveSyncState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runSkillSyncAddLocal(nil, addOptions{all: true, nonInteract: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"alpha", "beta"} {
+		assertSkillSymlink(t, agentPath, name)
+		assertFileContent(t, filepath.Join(agentPath, name, "SKILL.md"), strings.ToUpper(name))
+	}
+
+	state, err = skill.LoadSyncState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		entry := state.Skills[name]
+		if entry.Status != skill.SyncStatusLinked {
+			t.Fatalf("%s status = %s, want linked", name, entry.Status)
+		}
+	}
+}

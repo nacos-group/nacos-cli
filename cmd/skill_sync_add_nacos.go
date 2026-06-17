@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/nacos-group/nacos-cli/internal/skill"
@@ -24,6 +26,8 @@ func runSkillSyncAddNacos(skillNames []string, opts addOptions) error {
 	if err != nil {
 		return fmt.Errorf("ensure skill repo: %v", err)
 	}
+	state.Mode = skill.SyncModeNacos
+	state.Profile = skill.CurrentSyncProfile()
 	state.Repo = repoPath
 
 	if err := ensureAgents(state); err != nil {
@@ -31,6 +35,17 @@ func runSkillSyncAddNacos(skillNames []string, opts addOptions) error {
 	}
 	if len(state.Agents) == 0 {
 		return fmt.Errorf("no agent directories found; use 'skill-sync agent add'")
+	}
+
+	var skillService *skill.SkillService
+	if opts.all {
+		nacosClient := mustNewNacosClient()
+		skillService = skill.NewSkillService(nacosClient)
+		nacosSkills, err := listAllNacosSkills(skillService)
+		if err != nil {
+			return fmt.Errorf("list Nacos skills: %w", err)
+		}
+		skillNames = selectUnmanagedNacosSkillNames(state, nacosSkills)
 	}
 
 	if opts.dryRun {
@@ -46,8 +61,15 @@ func runSkillSyncAddNacos(skillNames []string, opts addOptions) error {
 		return nil
 	}
 
-	nacosClient := mustNewNacosClient()
-	skillService := skill.NewSkillService(nacosClient)
+	if len(skillNames) == 0 {
+		fmt.Println("No new Nacos skills to add.")
+		return skill.SaveSyncState(state)
+	}
+
+	if skillService == nil {
+		nacosClient := mustNewNacosClient()
+		skillService = skill.NewSkillService(nacosClient)
+	}
 
 	var failures []string
 	for _, skillName := range skillNames {
@@ -57,6 +79,27 @@ func runSkillSyncAddNacos(skillNames []string, opts addOptions) error {
 	}
 
 	return saveSyncStateAfterBatch(state, failures)
+}
+
+func selectUnmanagedNacosSkillNames(state *skill.SyncState, items []skill.SkillListItem) []string {
+	seen := make(map[string]struct{}, len(items))
+	var names []string
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := state.Skills[name]; ok {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func addSingleNacos(state *skill.SyncState, repoPath, skillName string, svc *skill.SkillService, opts addOptions) error {

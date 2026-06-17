@@ -11,31 +11,47 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/nacos-group/nacos-cli/internal/config"
 )
 
 const (
 	// SkillRepoDir is the directory name of the central skill repository
-	// inside the CLI config directory (e.g. ~/.nacos-cli/skill-repo/).
+	// inside each profile sync directory.
 	SkillRepoDir = "skill-repo"
 )
 
-// GetSkillRepoPath returns the absolute path of the central skill repository.
+// GetSkillRepoPath returns the absolute path of the current profile skill repository.
 func GetSkillRepoPath() (string, error) {
-	configDir, err := config.GetConfigDir()
+	return GetSkillRepoPathForProfile(CurrentSyncProfile())
+}
+
+// GetSkillRepoPathForProfile returns the absolute path of a profile skill repository.
+func GetSkillRepoPathForProfile(profile string) (string, error) {
+	profileDir, err := GetSyncProfileDir(profile)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, SkillRepoDir), nil
+	return filepath.Join(profileDir, SkillRepoDir), nil
 }
 
-// EnsureSkillRepo ensures the central skill repository exists.
+// EnsureSkillRepo ensures the current profile skill repository exists.
 func EnsureSkillRepo() (string, error) {
 	repoPath, err := GetSkillRepoPath()
 	if err != nil {
 		return "", err
 	}
+	return ensureSkillRepoPath(repoPath)
+}
+
+// EnsureSkillRepoForProfile ensures a profile skill repository exists.
+func EnsureSkillRepoForProfile(profile string) (string, error) {
+	repoPath, err := GetSkillRepoPathForProfile(profile)
+	if err != nil {
+		return "", err
+	}
+	return ensureSkillRepoPath(repoPath)
+}
+
+func ensureSkillRepoPath(repoPath string) (string, error) {
 	if err := os.MkdirAll(repoPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create skill repo: %w", err)
 	}

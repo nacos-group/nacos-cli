@@ -11,10 +11,20 @@ import (
 )
 
 const (
-	// SyncStateFile is the name of the global sync state file.
+	// SyncStateFile is the legacy global sync state file name.
 	SyncStateFile = "skill-sync-state.json"
+	// SyncRootDir is the root directory for profile-scoped sync data.
+	SyncRootDir = "skill-sync"
+	// SyncProfilesDir is the directory containing per-profile sync data.
+	SyncProfilesDir = "profiles"
+	// SyncProfileStateFile is the per-profile sync state file name.
+	SyncProfileStateFile = "state.json"
+	// SyncAgentsFile stores globally shared agent directories.
+	SyncAgentsFile = "agents.json"
+	// SyncActiveProfileFile records the profile currently linked into agents.
+	SyncActiveProfileFile = "active-profile"
 	// SyncStateVersion is the current schema version.
-	SyncStateVersion = 2
+	SyncStateVersion = 3
 	// SyncDaemonPIDFile records the sync daemon process ID.
 	SyncDaemonPIDFile = "skill-sync.pid"
 	// SyncDaemonLogFile records the sync daemon log output.
@@ -126,7 +136,7 @@ type SyncConfig struct {
 	AutoUpload bool `json:"autoUpload"`
 }
 
-// SyncState is the top-level global sync state structure.
+// SyncState is the top-level per-profile sync state structure.
 type SyncState struct {
 	Version   int                       `json:"version"`
 	Mode      SyncMode                  `json:"mode"`
@@ -139,13 +149,86 @@ type SyncState struct {
 	UpdatedAt string                    `json:"updatedAt"`
 }
 
-// GetSyncStatePath returns the path to the global sync state file.
+type syncAgentsFile struct {
+	Version int        `json:"version"`
+	Agents  []AgentDir `json:"agents"`
+}
+
+var currentSyncProfile string
+
+// SetCurrentSyncProfile sets the profile used by profile-scoped sync paths.
+func SetCurrentSyncProfile(profile string) {
+	currentSyncProfile = config.NormalizeProfileName(profile)
+}
+
+// CurrentSyncProfile returns the active profile name for this process.
+func CurrentSyncProfile() string {
+	if currentSyncProfile != "" {
+		return currentSyncProfile
+	}
+	profile, err := config.GetCurrentProfile()
+	if err != nil || profile == "" {
+		return config.DefaultProfile
+	}
+	return config.NormalizeProfileName(profile)
+}
+
+// GetSyncRootPath returns the root directory for skill-sync data.
+func GetSyncRootPath() (string, error) {
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, SyncRootDir), nil
+}
+
+// GetSyncProfileDir returns the profile-scoped sync directory.
+func GetSyncProfileDir(profile string) (string, error) {
+	root, err := GetSyncRootPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, SyncProfilesDir, config.NormalizeProfileName(profile)), nil
+}
+
+// GetSyncStatePath returns the path to the current profile sync state file.
 func GetSyncStatePath() (string, error) {
+	return GetSyncStatePathForProfile(CurrentSyncProfile())
+}
+
+// GetSyncStatePathForProfile returns the path to a profile sync state file.
+func GetSyncStatePathForProfile(profile string) (string, error) {
+	profileDir, err := GetSyncProfileDir(profile)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(profileDir, SyncProfileStateFile), nil
+}
+
+func getLegacySyncStatePath() (string, error) {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(configDir, SyncStateFile), nil
+}
+
+// GetSyncAgentsPath returns the global agent config path.
+func GetSyncAgentsPath() (string, error) {
+	root, err := GetSyncRootPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, SyncAgentsFile), nil
+}
+
+// GetActiveSyncProfilePath returns the active profile marker path.
+func GetActiveSyncProfilePath() (string, error) {
+	root, err := GetSyncRootPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, SyncActiveProfileFile), nil
 }
 
 // GetSyncDaemonPIDPath returns the path to the sync daemon PID file.
@@ -166,10 +249,83 @@ func GetSyncDaemonLogPath() (string, error) {
 	return filepath.Join(configDir, SyncDaemonLogFile), nil
 }
 
-// LoadSyncState reads and parses the global sync state file.
+// LoadActiveSyncProfile reads the profile currently linked into agents.
+func LoadActiveSyncProfile() (string, error) {
+	path, err := GetActiveSyncProfilePath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// SaveActiveSyncProfile records the profile currently linked into agents.
+func SaveActiveSyncProfile(profile string) error {
+	path, err := GetActiveSyncProfilePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(config.NormalizeProfileName(profile)+"\n"), 0644)
+}
+
+// LoadSyncAgents reads globally shared agent directories.
+func LoadSyncAgents() ([]AgentDir, error) {
+	path, err := GetSyncAgentsPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var file syncAgentsFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, err
+	}
+	if file.Agents == nil {
+		return nil, nil
+	}
+	return file.Agents, nil
+}
+
+// SaveSyncAgents writes globally shared agent directories.
+func SaveSyncAgents(agents []AgentDir) error {
+	path, err := GetSyncAgentsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(syncAgentsFile{Version: SyncStateVersion, Agents: agents}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
+// LoadSyncState reads and parses the current profile sync state file.
 // Returns a default state if the file doesn't exist.
 func LoadSyncState() (*SyncState, error) {
-	statePath, err := GetSyncStatePath()
+	return LoadSyncStateForProfile(CurrentSyncProfile())
+}
+
+// LoadSyncStateForProfile reads and parses a profile sync state file.
+func LoadSyncStateForProfile(profile string) (*SyncState, error) {
+	profile = config.NormalizeProfileName(profile)
+	statePath, err := GetSyncStatePathForProfile(profile)
 	if err != nil {
 		return nil, err
 	}
@@ -177,16 +333,43 @@ func LoadSyncState() (*SyncState, error) {
 	data, err := os.ReadFile(statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultSyncState(), nil
+			state, loadErr := loadLegacySyncStateIfProfileMatches(profile)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if state == nil {
+				state = defaultSyncState()
+				state.Profile = profile
+			}
+			if agents, agentsErr := LoadSyncAgents(); agentsErr == nil && len(agents) > 0 {
+				state.Agents = agents
+			}
+			return state, nil
 		}
 		return nil, err
 	}
 
+	state, err := parseSyncState(data)
+	if err != nil {
+		return nil, err
+	}
+	state.Profile = profile
+	if agents, agentsErr := LoadSyncAgents(); agentsErr == nil && len(agents) > 0 {
+		state.Agents = agents
+	}
+	return state, nil
+}
+
+func parseSyncState(data []byte) (*SyncState, error) {
 	var state SyncState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
+	normalizeSyncState(&state, data)
+	return &state, nil
+}
 
+func normalizeSyncState(state *SyncState, data []byte) {
 	if state.Skills == nil {
 		state.Skills = make(map[string]SyncSkillEntry)
 	}
@@ -202,8 +385,29 @@ func LoadSyncState() (*SyncState, error) {
 	if state.Version == 0 {
 		state.Version = SyncStateVersion
 	}
+}
 
-	return &state, nil
+func loadLegacySyncStateIfProfileMatches(profile string) (*SyncState, error) {
+	legacyPath, err := getLegacySyncStatePath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(legacyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	state, err := parseSyncState(data)
+	if err != nil {
+		return nil, err
+	}
+	if state.Profile != "" && state.Profile != profile {
+		return nil, nil
+	}
+	state.Profile = profile
+	return state, nil
 }
 
 // defaultSyncState returns a freshly initialized state with safe defaults.
@@ -220,16 +424,32 @@ func defaultSyncState() *SyncState {
 
 // SaveSyncState writes the sync state to disk.
 func SaveSyncState(state *SyncState) error {
-	statePath, err := GetSyncStatePath()
+	profile := state.Profile
+	if profile == "" {
+		profile = CurrentSyncProfile()
+	}
+	return SaveSyncStateForProfile(profile, state)
+}
+
+// SaveSyncStateForProfile writes a profile sync state to disk.
+func SaveSyncStateForProfile(profile string, state *SyncState) error {
+	profile = config.NormalizeProfileName(profile)
+	statePath, err := GetSyncStatePathForProfile(profile)
 	if err != nil {
 		return err
 	}
 
-	if err := config.EnsureConfigDir(); err != nil {
+	if err := os.MkdirAll(filepath.Dir(statePath), 0755); err != nil {
 		return err
 	}
 
+	state.Profile = profile
+	state.Version = SyncStateVersion
 	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	if err := SaveSyncAgents(state.Agents); err != nil {
+		return err
+	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

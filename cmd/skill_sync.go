@@ -16,6 +16,10 @@ var skillSyncCmd = &cobra.Command{
 	Long: `Skill synchronization between Nacos (or a local repo) and one or more
 agent skill directories.
 
+Each profile has its own sync state and skill repo. Agent directories are shared.
+When switching profiles, mutating commands prompt to detach the active profile
+first; scripts can pass --switch-profile to make that switch explicit.
+
 Subcommands:
   add         Add a skill and link it to all agents
   remove      Remove a skill from sync management and keep local copies in agents
@@ -42,6 +46,7 @@ var (
 	addOptUpload      bool
 	addOptDryRun      bool
 	addOptNonInteract bool
+	addOptAll         bool
 )
 
 type removeOptions struct {
@@ -70,15 +75,25 @@ Local mode:
   - If the central repo has the skill, link it to all agents.
   - Otherwise reverse-import from an agent (single match auto-imports;
     multiple different versions trigger a source picker, override with --from).
+  - Use --all to add every skill from the current local repo.
 
 Non-interactive:
   - Use --non-interactive to disable prompts.
   - Nacos mode defaults to Nacos when a Nacos version is available.
   - Use --from <agent> or --from latest to choose a local source.
-  - Ambiguous local-only sources fail instead of being skipped silently.`,
-	Args: cobra.MinimumNArgs(1),
+  - Ambiguous local-only sources fail instead of being skipped silently.
+
+Bulk add:
+  - In Nacos mode, --all adds Nacos skills not yet managed by this profile.
+  - In local mode, --all links all repo skills and may import unambiguous
+    unmanaged agent skills.`,
+	Args: validateSkillSyncAddArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := runSkillSyncAdd(args, currentAddOptions()); err != nil {
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runSkillSyncAdd(args, currentAddOptions(cmd)); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -99,6 +114,10 @@ untouched.
 Use --all to remove every skill from sync management.`,
 	Args: validateSkillSyncRemoveArgs,
 	Run: func(cmd *cobra.Command, args []string) {
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		if err := runSkillSyncRemove(args, currentRemoveOptions(cmd)); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -113,6 +132,10 @@ var skillSyncSetLabelCmd = &cobra.Command{
 	Short: "Set the global tracking label (default: latest)",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		label := strings.TrimSpace(args[0])
 		if label == "" {
 			fmt.Fprintf(os.Stderr, "Error: label cannot be empty\n")
@@ -139,6 +162,7 @@ var skillSyncSetLabelCmd = &cobra.Command{
 }
 
 func init() {
+	registerSkillSyncProfileFlags(skillSyncCmd)
 	registerSkillSyncAddFlags(skillSyncAddCmd)
 	registerSkillSyncRemoveFlags(skillSyncRemoveCmd)
 
@@ -154,13 +178,16 @@ func registerSkillSyncAddFlags(cmd *cobra.Command) {
 	_ = cmd.Flags().MarkHidden("upload")
 	cmd.Flags().BoolVar(&addOptDryRun, "dry-run", false, "Show planned actions without executing")
 	cmd.Flags().BoolVar(&addOptNonInteract, "non-interactive", false, "Run without prompts")
+	cmd.Flags().BoolVar(&addOptAll, "all", false, "Add all unmanaged skills from Nacos or the local repo")
 }
 
-func currentAddOptions() addOptions {
+func currentAddOptions(cmd *cobra.Command) addOptions {
+	all, _ := cmd.Flags().GetBool("all")
 	return addOptions{
 		fromAgent:   addOptFromAgent,
 		dryRun:      addOptDryRun,
 		nonInteract: addOptNonInteract,
+		all:         all,
 	}
 }
 
@@ -171,6 +198,17 @@ func registerSkillSyncRemoveFlags(cmd *cobra.Command) {
 func currentRemoveOptions(cmd *cobra.Command) removeOptions {
 	all, _ := cmd.Flags().GetBool("all")
 	return removeOptions{all: all}
+}
+
+func validateSkillSyncAddArgs(cmd *cobra.Command, args []string) error {
+	all, _ := cmd.Flags().GetBool("all")
+	if all {
+		if len(args) > 0 {
+			return fmt.Errorf("--all cannot be combined with skill names")
+		}
+		return nil
+	}
+	return cobra.MinimumNArgs(1)(cmd, args)
 }
 
 func validateSkillSyncRemoveArgs(cmd *cobra.Command, args []string) error {

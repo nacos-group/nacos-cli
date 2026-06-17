@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nacos-group/nacos-cli/internal/config"
+	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/spf13/cobra"
 )
 
@@ -234,6 +235,45 @@ func TestPersistentPreRunDoesNotCreateConfigForSkillSyncWithoutProfile(t *testin
 	}
 	if serverAddr != "market.hiclaw.io:80" {
 		t.Fatalf("serverAddr = %q, want default market address", serverAddr)
+	}
+}
+
+func TestPersistentPreRunSkillSyncWithoutProfileUsesActiveProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Cleanup(func() {
+		skill.SetCurrentSyncProfile("")
+	})
+
+	teamPath, err := config.GetProfileConfigPath("team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&config.Config{Host: "10.0.0.2", Port: 8848, AuthType: "none", Namespace: "team-ns"}).SaveConfig(teamPath); err != nil {
+		t.Fatal(err)
+	}
+	localPath, err := config.GetProfileConfigPath("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&config.Config{Host: "10.0.0.3", Port: 8848, AuthType: "none", Namespace: "local-ns"}).SaveConfig(localPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetCurrentProfile("team"); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.SaveActiveSyncProfile("local"); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCmd.PersistentPreRun(skillSyncTestCommand("start"), nil)
+
+	if got := skill.CurrentSyncProfile(); got != "local" {
+		t.Fatalf("current sync profile = %q, want local", got)
+	}
+	if namespace != "local-ns" {
+		t.Fatalf("namespace = %q, want local-ns", namespace)
 	}
 }
 

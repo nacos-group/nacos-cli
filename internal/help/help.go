@@ -355,7 +355,7 @@ var (
 		Command:     "skill-sync",
 		Description: "Unified skill synchronization management across agent directories.",
 		Parameters: []string{
-			"add <skill>     Add and initial pull/link",
+			"add <skill|--all> Add and initial pull/link",
 			"remove <skill>  Remove from sync management (keeps agent copies)",
 			"status          Show sync state table",
 			"resolve <skill> Resolve conflicts (--use-local / --use-remote)",

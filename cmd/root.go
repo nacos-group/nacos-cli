@@ -8,6 +8,7 @@ import (
 
 	"github.com/nacos-group/nacos-cli/internal/client"
 	"github.com/nacos-group/nacos-cli/internal/config"
+	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
@@ -63,6 +64,22 @@ Examples:
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
 		hasEnvConfig := envHost != "" || envPortRaw != "" || envNamespace != ""
 		skillSyncCommand := isSkillSyncCommand(cmd)
+		effectiveProfile := profileName
+		if effectiveProfile == "" {
+			if currentProfile, profileErr := config.GetCurrentProfile(); profileErr == nil && currentProfile != "" {
+				effectiveProfile = currentProfile
+			} else {
+				effectiveProfile = config.DefaultProfile
+			}
+		}
+		if skillSyncCommand && profileName == "" {
+			if activeProfile, activeErr := skill.LoadActiveSyncProfile(); activeErr == nil && activeProfile != "" {
+				effectiveProfile = activeProfile
+			}
+		}
+		if skillSyncCommand {
+			skill.SetCurrentSyncProfile(effectiveProfile)
+		}
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -72,14 +89,7 @@ Examples:
 			}
 		} else if !hasCommandLineConfig {
 			// No command line config provided, use profile-based config
-			envName := config.DefaultProfile
-			if profileName != "" {
-				envName = profileName
-			} else if currentProfile, profileErr := config.GetCurrentProfile(); profileErr == nil {
-				envName = currentProfile
-			} else {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to load current profile setting: %v\n", profileErr)
-			}
+			envName := effectiveProfile
 			if hasEnvConfig || skillSyncCommand {
 				configPath, pathErr := config.GetProfileConfigPath(envName)
 				if pathErr != nil {

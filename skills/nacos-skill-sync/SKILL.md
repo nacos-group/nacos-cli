@@ -79,6 +79,7 @@ Read these fields:
 
 - `Mode`: `nacos` or `local`.
 - `Profile`: required for Nacos mode.
+- `Showing profile: <name> (inactive)`: this is a saved profile view only; it is not currently linked into agent directories.
 - `Auto-upload`: whether local changes will upload automatically.
 - `Sync daemon`: whether polling is running.
 - `STATUS` and `NEXT`: the next required action for each skill.
@@ -129,6 +130,14 @@ $CLI skill-sync add <skill> --profile <profile> --from <agent> --non-interactive
 
 Use `--from latest` only when the user accepts "most recently modified local source" as the rule.
 
+To add every not-yet-managed skill from Nacos for the current profile:
+
+```bash
+$CLI skill-sync add --all --profile <profile> --non-interactive
+```
+
+This should not be used to refresh existing local changes; use `start` or `resolve` for already managed skills.
+
 ### Local mode
 
 If the user only wants local multi-agent sync:
@@ -156,6 +165,14 @@ $CLI skill-sync add <skill> --from latest --non-interactive
 ```
 
 In local mode, a successful `add --from ...` should import the chosen source into the central repo and link every configured agent to it.
+
+To add every skill currently in the local repo:
+
+```bash
+$CLI skill-sync add --all --non-interactive
+```
+
+In local mode, `add --all` may reverse-import unmanaged local agent skills when they are unambiguous. Multi-version conflicts still require a specific `add <skill> --from <agent>` decision.
 
 ## Start or Restart Sync
 
@@ -325,10 +342,10 @@ Do not use these during the first-run path unless the user explicitly asks or th
 
 ```bash
 $CLI skill-sync remove <skill>
+$CLI skill-sync add --all --profile <profile> --non-interactive
 $CLI skill-sync set-label <label> --profile <profile>
-$CLI skill-sync start --all --profile <profile> --non-interactive
 ```
 
 - `remove` stops syncing a skill and keeps local agent copies; confirm before removing.
+- `add --all` adds not-yet-managed skills in bulk without choosing a local source arbitrarily.
 - `set-label` changes the tracked Nacos label, commonly `latest`; verify with `status`.
-- `start --all` is a broad import/sync action. In Nacos mode it adds available Nacos skills; in local mode it can reverse-import unmanaged local skills. Use it only after confirming scope.

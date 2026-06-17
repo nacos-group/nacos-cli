@@ -151,6 +151,140 @@ func TestPrintSyncStatusSummaryDetectsLocalAgentDrift(t *testing.T) {
 	}
 }
 
+func TestLoadSyncStateForStatusDefaultsToActiveProfile(t *testing.T) {
+	withTempHome(t)
+	origProfileName := profileName
+	profileName = ""
+	skill.SetCurrentSyncProfile("team")
+	t.Cleanup(func() {
+		profileName = origProfileName
+		skill.SetCurrentSyncProfile("")
+	})
+
+	teamState := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Profile: "team",
+		Label:   "latest",
+		Skills: map[string]skill.SyncSkillEntry{
+			"team-skill": {Name: "team-skill", Status: skill.SyncStatusSynced},
+		},
+	}
+	if err := skill.SaveSyncStateForProfile("team", teamState); err != nil {
+		t.Fatal(err)
+	}
+	localState := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Profile: "local",
+		Label:   "latest",
+		Skills: map[string]skill.SyncSkillEntry{
+			"pdf": {Name: "pdf", Status: skill.SyncStatusLocalChanges},
+		},
+	}
+	if err := skill.SaveSyncStateForProfile("local", localState); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.SaveActiveSyncProfile("local"); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		state *skill.SyncState
+		opts  syncStatusPrintOptions
+		err   error
+	)
+	output := captureStdout(t, func() {
+		state, opts, err = loadSyncStateForStatus()
+		if err == nil {
+			printSyncStatusSummaryWithOptions(state, opts)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		"Active profile: local",
+		"Showing profile: local",
+		"Current CLI profile: team",
+		"Profile: local",
+		"pdf",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "team-skill") {
+		t.Fatalf("status should show active profile, got team state:\n%s", output)
+	}
+	if opts.refreshRemote {
+		t.Fatal("remote refresh should be skipped when status follows active profile without an explicit --profile")
+	}
+	if !opts.refreshLocal {
+		t.Fatal("local refresh should run when status follows the active profile")
+	}
+}
+
+func TestLoadSyncStateForStatusHonorsExplicitProfile(t *testing.T) {
+	withTempHome(t)
+	origProfileName := profileName
+	profileName = "team"
+	skill.SetCurrentSyncProfile("team")
+	t.Cleanup(func() {
+		profileName = origProfileName
+		skill.SetCurrentSyncProfile("")
+	})
+
+	if err := skill.SaveActiveSyncProfile("local"); err != nil {
+		t.Fatal(err)
+	}
+	stateTeam := &skill.SyncState{
+		Version: skill.SyncStateVersion,
+		Mode:    skill.SyncModeNacos,
+		Profile: "team",
+		Label:   "latest",
+		Skills: map[string]skill.SyncSkillEntry{
+			"team-skill": {Name: "team-skill", Status: skill.SyncStatusSynced},
+		},
+	}
+	if err := skill.SaveSyncStateForProfile("team", stateTeam); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		state *skill.SyncState
+		opts  syncStatusPrintOptions
+		err   error
+	)
+	output := captureStdout(t, func() {
+		state, opts, err = loadSyncStateForStatus()
+		if err == nil {
+			printSyncStatusSummaryWithOptions(state, opts)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Active profile: local",
+		"Showing profile: team (inactive)",
+		"This profile is not currently linked to agent directories.",
+		"Sync daemon: inactive for this profile (active profile: local)",
+		"team-skill",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	if opts.refreshRemote {
+		t.Fatal("inactive profile status should not refresh remote versions")
+	}
+	if opts.refreshLocal {
+		t.Fatal("inactive profile status should not inspect active agent directories")
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 

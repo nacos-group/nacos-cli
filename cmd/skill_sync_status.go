@@ -18,30 +18,67 @@ var skillSyncStatusCmd = &cobra.Command{
 	Short: "Show sync state of all added skills",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		state, err := skill.LoadSyncState()
+		state, opts, err := loadSyncStateForStatus()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to load sync state: %v\n", err)
 			os.Exit(1)
 		}
 
-		if len(state.Skills) == 0 {
-			fmt.Println("No skills added.")
-			fmt.Println("Use 'nacos-cli skill-sync add <skill>' to add a skill.")
-			printSyncDaemonStatus()
-			return
-		}
-
-		printSyncStatusSummary(state)
+		printSyncStatusSummaryWithOptions(state, opts)
 	},
 }
 
+type syncStatusPrintOptions struct {
+	refreshRemote   bool
+	refreshLocal    bool
+	activeProfile   string
+	showingProfile  string
+	inactive        bool
+	followedActive  bool
+	originalProfile string
+}
+
+func loadSyncStateForStatus() (*skill.SyncState, syncStatusPrintOptions, error) {
+	opts := syncStatusPrintOptions{refreshRemote: true, refreshLocal: true}
+	current := skill.CurrentSyncProfile()
+	active, err := skill.LoadActiveSyncProfile()
+	if err != nil {
+		return nil, opts, err
+	}
+	opts.activeProfile = active
+	opts.showingProfile = current
+	if active != "" && active != current {
+		if profileName == "" {
+			skill.SetCurrentSyncProfile(active)
+			state, err := skill.LoadSyncStateForProfile(active)
+			opts.refreshRemote = false
+			opts.followedActive = true
+			opts.originalProfile = current
+			opts.showingProfile = active
+			return state, opts, err
+		}
+		opts.inactive = true
+		opts.refreshRemote = false
+		opts.refreshLocal = false
+	}
+
+	state, err := skill.LoadSyncState()
+	return state, opts, err
+}
+
 func printSyncStatusSummary(state *skill.SyncState) {
+	printSyncStatusSummaryWithOptions(state, syncStatusPrintOptions{refreshRemote: true, refreshLocal: true})
+}
+
+func printSyncStatusSummaryWithOptions(state *skill.SyncState, opts syncStatusPrintOptions) {
+	printSyncStatusProfileContext(state, opts)
+
 	mode := state.Mode
 	if mode == skill.SyncModeUnset {
 		mode = "(unset)"
 	}
 	fmt.Printf("Mode: %s\n", mode)
-	if state.Profile != "" {
+	if state.Profile != "" && !opts.inactive {
 		fmt.Printf("Profile: %s\n", state.Profile)
 	}
 	if state.Repo != "" {
@@ -55,7 +92,7 @@ func printSyncStatusSummary(state *skill.SyncState) {
 			fmt.Printf("Auto-upload: disabled\n")
 		}
 	}
-	printSyncDaemonStatus()
+	printSyncDaemonStatusWithOptions(opts)
 	fmt.Println()
 
 	if len(state.Skills) == 0 {
@@ -65,9 +102,13 @@ func printSyncStatusSummary(state *skill.SyncState) {
 	}
 
 	// Refresh local hashes for accurate status
-	refreshLocalHashes(state)
-	refreshLocalAgentConflicts(state)
-	refreshNacosVersionsForStatus(state)
+	if opts.refreshLocal {
+		refreshLocalHashes(state)
+		refreshLocalAgentConflicts(state)
+	}
+	if opts.refreshRemote {
+		refreshNacosVersionsForStatus(state)
+	}
 
 	// Sort skill names
 	names := make([]string, 0, len(state.Skills))
@@ -116,6 +157,26 @@ func printSyncStatusSummary(state *skill.SyncState) {
 	}
 }
 
+func printSyncStatusProfileContext(state *skill.SyncState, opts syncStatusPrintOptions) {
+	if opts.inactive {
+		fmt.Printf("Active profile: %s\n", opts.activeProfile)
+		showing := opts.showingProfile
+		if showing == "" {
+			showing = state.Profile
+		}
+		fmt.Printf("Showing profile: %s (inactive)\n", showing)
+		fmt.Println("This profile is not currently linked to agent directories.")
+		return
+	}
+	if opts.followedActive {
+		fmt.Printf("Active profile: %s\n", opts.showingProfile)
+		fmt.Printf("Showing profile: %s\n", opts.showingProfile)
+		if opts.originalProfile != "" {
+			fmt.Printf("Current CLI profile: %s\n", opts.originalProfile)
+		}
+	}
+}
+
 // agentsDisplay returns a comma-joined list of agents that have the skill linked,
 // noting any agent in conflict with the central repo as `name≠`.
 func agentsDisplay(skillName string, entry skill.SyncSkillEntry, state *skill.SyncState) string {
@@ -135,6 +196,18 @@ func agentsDisplay(skillName string, entry skill.SyncSkillEntry, state *skill.Sy
 }
 
 func printSyncDaemonStatus() {
+	printSyncDaemonStatusWithOptions(syncStatusPrintOptions{})
+}
+
+func printSyncDaemonStatusWithOptions(opts syncStatusPrintOptions) {
+	if opts.inactive {
+		active := opts.activeProfile
+		if active == "" {
+			active = "-"
+		}
+		fmt.Printf("Sync daemon: inactive for this profile (active profile: %s)\n", active)
+		return
+	}
 	running, pid := skill.IsSyncDaemonRunning()
 	if running {
 		fmt.Printf("Sync daemon: running (pid: %d)\n", pid)
@@ -243,6 +316,9 @@ func sameStringSlice(a, b []string) bool {
 
 func refreshNacosVersionsForStatus(state *skill.SyncState) {
 	if state.Mode != skill.SyncModeNacos {
+		return
+	}
+	if _, _, mismatch := skillSyncProfileMismatch(); mismatch {
 		return
 	}
 

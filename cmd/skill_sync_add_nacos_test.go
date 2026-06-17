@@ -79,3 +79,24 @@ description: test skill
 	}
 	assertFileContent(t, filepath.Join(skillPath, "SKILL.md"), remoteSkill)
 }
+
+func TestSelectUnmanagedNacosSkillNamesSkipsManagedAndSorts(t *testing.T) {
+	state := &skill.SyncState{
+		Skills: map[string]skill.SyncSkillEntry{
+			"beta": {Name: "beta"},
+		},
+	}
+
+	names := selectUnmanagedNacosSkillNames(state, []skill.SkillListItem{
+		{Name: "beta"},
+		{Name: "gamma"},
+		{Name: "alpha"},
+		{Name: "gamma"},
+		{Name: " "},
+	})
+
+	want := []string{"alpha", "gamma"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("names = %v, want %v", names, want)
+	}
+}

@@ -15,6 +15,7 @@ type addOptions struct {
 	fromAgent   string
 	dryRun      bool
 	nonInteract bool
+	all         bool
 }
 
 // runSkillSyncAddLocal handles `skill-sync add` in local mode.
@@ -27,6 +28,8 @@ func runSkillSyncAddLocal(skillNames []string, opts addOptions) error {
 	if err != nil {
 		return fmt.Errorf("ensure skill repo: %v", err)
 	}
+	state.Mode = skill.SyncModeLocal
+	state.Profile = skill.CurrentSyncProfile()
 	state.Repo = repoPath
 
 	if err := ensureAgents(state); err != nil {
@@ -34,6 +37,17 @@ func runSkillSyncAddLocal(skillNames []string, opts addOptions) error {
 	}
 	if len(state.Agents) == 0 {
 		return fmt.Errorf("no agent directories found; use 'skill-sync agent add'")
+	}
+
+	if opts.all {
+		if !opts.dryRun {
+			importAgentUnmanagedLocal(state, repoPath)
+		}
+		skills, err := skill.ScanSkillRepo()
+		if err != nil {
+			return fmt.Errorf("scan skill repo: %w", err)
+		}
+		skillNames = skills
 	}
 
 	if opts.dryRun {
@@ -47,6 +61,11 @@ func runSkillSyncAddLocal(skillNames []string, opts addOptions) error {
 		}
 		fmt.Println(string(data))
 		return nil
+	}
+
+	if len(skillNames) == 0 {
+		fmt.Println("No local skills found.")
+		return skill.SaveSyncState(state)
 	}
 
 	var failures []string

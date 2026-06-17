@@ -30,6 +30,33 @@ func TestSkillSyncRemoveHasAllFlag(t *testing.T) {
 	}
 }
 
+func TestSkillSyncAddHasAllFlag(t *testing.T) {
+	if skillSyncAddCmd.Flags().Lookup("all") == nil {
+		t.Fatal("skill-sync add should expose --all")
+	}
+}
+
+func TestValidateSkillSyncAddArgs(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("all", false, "")
+
+	if err := validateSkillSyncAddArgs(cmd, nil); err == nil {
+		t.Fatal("add without skill names or --all should fail")
+	}
+	if err := validateSkillSyncAddArgs(cmd, []string{"demo"}); err != nil {
+		t.Fatalf("add with skill name should pass: %v", err)
+	}
+	if err := cmd.Flags().Set("all", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSkillSyncAddArgs(cmd, nil); err != nil {
+		t.Fatalf("add --all should pass: %v", err)
+	}
+	if err := validateSkillSyncAddArgs(cmd, []string{"demo"}); err == nil {
+		t.Fatal("add --all with skill names should fail")
+	}
+}
+
 func TestValidateSkillSyncRemoveArgs(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().Bool("all", false, "")

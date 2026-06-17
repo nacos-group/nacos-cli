@@ -19,7 +19,6 @@ import (
 var (
 	syncStartForeground          bool
 	syncStartInterval            string
-	syncStartAll                 bool
 	syncStartUseRemoteOnConflict bool
 	syncStartRefresh             bool
 	syncStartLabel               string
@@ -40,19 +39,22 @@ In local mode, only link repo skills into agent directories.
 
 In Nacos mode: pulls every added skill from Nacos and links it to the
 agents. Conflicts (local content differs from Nacos) are skipped and reported;
-resolve them with 'skill-sync resolve <skill>'. Use --all to also add every
-skill on Nacos. Use --use-remote-on-conflict to overwrite local on
-conflict (with backup).
+resolve them with 'skill-sync resolve <skill>'. Use --use-remote-on-conflict
+to overwrite local on conflict (with backup).
 
 Use --non-interactive in scripts or Agent calls. It disables prompts; start
 records and skips conflicts unless --use-remote-on-conflict is provided.
 
 In local mode: links every skill in ~/.nacos-cli/skill-repo to the agents.
-Use --all to also reverse-import unmanaged skills found in agent directories.
 Local mode does not start a background daemon; symlinks keep agents pointed at
 the central repo after the initial link step.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 		// In --foreground mode, this process IS the daemon. Skip the
 		// running-daemon check to avoid the false-positive where the
 		// parent has already written our own PID into the PID file.
@@ -85,6 +87,8 @@ the central repo after the initial link step.`,
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+		state.Mode = modeRes.Mode
+		state.Profile = skill.CurrentSyncProfile()
 
 		// Ensure agents
 		if err := ensureAgents(state); err != nil {
@@ -102,7 +106,6 @@ the central repo after the initial link step.`,
 		}
 
 		initOpts := startInitOptions{
-			All:                 syncStartAll,
 			UseRemoteOnConflict: syncStartUseRemoteOnConflict,
 			Refresh:             syncStartRefresh,
 		}
@@ -743,7 +746,6 @@ func rotateLogIfNeeded(logPath string, maxBytes int64, backups int) error {
 func init() {
 	skillSyncStartCmd.Flags().BoolVar(&syncStartForeground, "foreground", false, "Run in foreground instead of background")
 	skillSyncStartCmd.Flags().StringVar(&syncStartInterval, "interval", "30s", "Poll interval (e.g. 10s, 1m)")
-	skillSyncStartCmd.Flags().BoolVar(&syncStartAll, "all", false, "Pull every available skill (Nacos: namespace-wide; Local: also reverse-import unmanaged)")
 	skillSyncStartCmd.Flags().BoolVar(&syncStartUseRemoteOnConflict, "use-remote-on-conflict", false, "Overwrite local content with remote on conflict (backup first)")
 	skillSyncStartCmd.Flags().BoolVar(&syncStartRefresh, "refresh", false, "Force re-pull every added skill (alias for treating local as out-of-date)")
 	skillSyncStartCmd.Flags().StringVar(&syncStartLabel, "label", "", "Override the tracking label for this invocation (Nacos mode only)")

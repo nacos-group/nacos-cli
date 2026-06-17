@@ -13,7 +13,6 @@ import (
 
 // startInitOptions controls the initial sync behavior of the start command.
 type startInitOptions struct {
-	All                 bool
 	UseRemoteOnConflict bool
 	Refresh             bool
 }
@@ -37,12 +36,6 @@ const (
 //   - Link every skill in the central repo to all agents using LinkSkillSafe
 //     (any agent with a different real directory is left untouched and recorded
 //     as a conflict on the entry).
-//
-// With opts.All:
-//   - Additionally scan all agents for unmanaged skills and reverse-import the
-//     ones that are unambiguous (single source or all sources have identical
-//     hash). Multi-version conflicts are reported and skipped; user runs
-//     'add <skill>' to disambiguate.
 func runLocalInitialSync(state *skill.SyncState, opts startInitOptions) bool {
 	repoPath, err := skill.EnsureSkillRepo()
 	if err != nil {
@@ -50,10 +43,6 @@ func runLocalInitialSync(state *skill.SyncState, opts startInitOptions) bool {
 		return true
 	}
 	state.Repo = repoPath
-
-	if opts.All {
-		importAgentUnmanagedLocal(state, repoPath)
-	}
 
 	skills, _ := skill.ScanSkillRepo()
 	if len(skills) == 0 {
@@ -197,10 +186,6 @@ func isAllSameHash(results []skill.AgentSearchResult) bool {
 //     fetch from Nacos. If repo or any agent already has different content,
 //     skip and mark Conflict (resolve later). Otherwise pull and link.
 //
-// With opts.All:
-//   - Treat every skill on the namespace as tracked. Newly discovered
-//     skills are added to state.Skills.
-//
 // With opts.UseRemoteOnConflict:
 //   - On conflict, force overwrite (LinkSkillForce) instead of skip.
 //
@@ -217,26 +202,14 @@ func runNacosInitialSync(state *skill.SyncState, opts startInitOptions) bool {
 	nacosClient := mustNewNacosClient()
 	skillService := skill.NewSkillService(nacosClient)
 
-	// Decide which skills to sync.
 	var skillNames []string
-	if opts.All {
-		nacosSkills, err := listAllNacosSkills(skillService)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: list Nacos skills: %v\n", err)
-			return true
-		}
-		for _, item := range nacosSkills {
-			skillNames = append(skillNames, item.Name)
-		}
-	} else {
-		for name := range state.Skills {
-			skillNames = append(skillNames, name)
-		}
+	for name := range state.Skills {
+		skillNames = append(skillNames, name)
 	}
 
 	if len(skillNames) == 0 {
 		fmt.Println("No skills added yet.")
-		fmt.Println("Use 'skill-sync add <name>' to add a skill, or rerun 'start --all' to pull every skill on Nacos.")
+		fmt.Println("Use 'skill-sync add <name>' to add a skill, or 'skill-sync add --all' to add every skill on Nacos.")
 		_ = skill.SaveSyncState(state)
 		return true
 	}

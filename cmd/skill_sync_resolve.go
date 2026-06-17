@@ -70,6 +70,10 @@ Non-interactive flags:
 			fmt.Fprintf(os.Stderr, "Error: choose only one of --use-nacos, --use-repo, --use-agent, --use-local, or --use-remote\n")
 			os.Exit(1)
 		}
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 
 		state, err := skill.LoadSyncState()
 		if err != nil {

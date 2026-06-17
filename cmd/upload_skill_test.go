@@ -10,6 +10,7 @@ import (
 
 	"github.com/nacos-group/nacos-cli/internal/skill"
 )
+
 func TestOverwriteFlagValue(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -206,7 +206,7 @@ func startBackgroundSkillWatcher(outputDir string) (int, string, error) {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Env = os.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = backgroundSysProcAttr()
 
 	if err := cmd.Start(); err != nil {
 		return 0, "", err

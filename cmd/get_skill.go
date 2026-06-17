@@ -49,6 +49,13 @@ var getSkillCmd = &cobra.Command{
 		// Create skill service
 		skillService := skill.NewSkillService(nacosClient)
 
+		// Load lock file for recording installs
+		lock, lockErr := skill.LoadSkillsLock(getSkillOutput)
+		if lockErr != nil {
+			// Non-fatal: just warn and continue without lock tracking
+			fmt.Fprintf(os.Stderr, "Warning: failed to load skills-lock.json: %v\n", lockErr)
+		}
+
 		// Track results
 		var successCount, failCount int
 		var failedSkills []string
@@ -59,9 +66,15 @@ var getSkillCmd = &cobra.Command{
 				fmt.Printf("\n[%d/%d] ", i+1, len(skillNames))
 			}
 			fmt.Printf("Fetching skill: %s...\n", skillName)
-			err := skillService.GetSkill(skillName, getSkillOutput, getSkillVersion, getSkillLabel)
+
+			// Use QuerySkill for download + MD5 tracking
+			result, err := skillService.QuerySkill(skillName, getSkillOutput, getSkillVersion, getSkillLabel, "")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: failed to download skill '%s': %v\n", skillName, err)
+				failCount++
+				failedSkills = append(failedSkills, skillName)
+			} else if result.Deleted {
+				fmt.Fprintf(os.Stderr, "Error: skill '%s' not found on server\n", skillName)
 				failCount++
 				failedSkills = append(failedSkills, skillName)
 			} else {
@@ -69,6 +82,19 @@ var getSkillCmd = &cobra.Command{
 				fmt.Printf("Skill downloaded successfully!\n")
 				fmt.Printf("  Location: %s\n", skillPath)
 				successCount++
+
+				// Record in lock file
+				if lock != nil {
+					lock.RecordInstall(skillName, getSkillVersion, getSkillLabel,
+						result.Md5, result.ResolvedVersion)
+				}
+			}
+		}
+
+		// Save lock file if we have successful downloads
+		if lock != nil && successCount > 0 {
+			if err := skill.SaveSkillsLock(getSkillOutput, lock); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save skills-lock.json: %v\n", err)
 			}
 		}
 
@@ -92,5 +118,6 @@ func init() {
 	getSkillCmd.Flags().StringVarP(&getSkillOutput, "output", "o", "", "Output directory (default: ~/.skills)")
 	getSkillCmd.Flags().StringVar(&getSkillVersion, "version", "", "Specific version to download (e.g. v1, v2)")
 	getSkillCmd.Flags().StringVar(&getSkillLabel, "label", "", "Route label to resolve version (e.g. latest, stable)")
+	_ = getSkillCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(getSkillCmd)
 }

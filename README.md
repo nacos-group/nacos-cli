@@ -9,16 +9,28 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 - 🎯 Skill management - full lifecycle: upload → review → release, plus get/list/describe/sync
 - 🤖 AgentSpec management - full lifecycle: upload → review → release, plus get/list/describe
 - 📝 Configuration management - list, get and set configurations
-- 🔄 Real-time skill synchronization with Nacos
+- 🔄 Profile-aware skill synchronization across local agents and Nacos
 - 🌐 Namespace support for multi-environment management
 - 📦 Batch operations - upload all skills and agent specs at once
 - 🧾 Structured output - `--output json` on list/describe for scripting
 
 ## Installation
 
+### Official Installer
+
+Install `nacos-cli` with the Nacos installer:
+
+```bash
+curl -fsSL https://nacos.io/nacos-installer.sh | bash -s -- --cli
+```
+
+The installer adds `~/.nacos/bin` to your shell PATH and configures shell
+completion for zsh, bash, or fish when possible.
+
 ### npm / npx
 
-Use `npx` to run directly without installation:
+After the npm package is published, use `npx` to run directly without
+installation:
 
 ```bash
 npx @nacos-group/cli --help
@@ -48,6 +60,32 @@ go build -o nacos-cli
 
 # Or use make
 make build
+```
+
+## Shell Completion
+
+Enable shell completion once, then commands, flags, and path arguments such as
+`skill-upload <path>`, `agentspec-upload <path>`, `--config`, `--file`, and
+`--output` can be completed with Tab:
+
+```bash
+# Bash
+source <(nacos-cli completion bash)
+
+# Zsh
+source <(nacos-cli completion zsh)
+
+# Fish
+nacos-cli completion fish | source
+```
+
+For persistent setup, write the generated script to your shell's completion
+directory:
+
+```bash
+nacos-cli completion zsh > "${fpath[1]}/_nacos-cli"
+nacos-cli completion bash > /usr/local/etc/bash_completion.d/nacos-cli
+nacos-cli completion fish > ~/.config/fish/completions/nacos-cli.fish
 ```
 
 ## Quick Start
@@ -350,22 +388,82 @@ nacos-cli skill-publish --all /path/to/skills/folder
 
 #### Sync Skill
 
-Real-time synchronization - automatically syncs local skills when they change in Nacos:
+Skill Sync keeps one central skill copy linked into multiple agent directories.
+It can run in two modes:
+
+- **Nacos mode**: sync skills with a Nacos Skill Registry label such as
+  `latest`, start a background daemon, and optionally auto-upload local changes
+  as drafts.
+- **Local mode**: keep local agents linked to a local central repo without
+  requiring a Nacos server.
+
+Each Nacos profile has its own sync state and skill repo under
+`~/.nacos-cli/skill-sync/profiles/<profile>/`. Agent directories are shared
+across profiles. When switching the active sync profile, mutating commands prompt
+to detach the old profile first; scripts can pass `--switch-profile` to make the
+switch explicit.
+
+Skill Sync automatically discovers existing skill directories for Codex, Claude,
+Qoder, QoderWork, Cursor, Kiro, Lingma, CoPaw, OpenClaw, `~/.agents/skills`, and
+`~/.skills`. Register custom directories with `skill-sync agent add`.
 
 ```bash
-# Sync single skill (CLI mode only)
-nacos-cli skill-sync skill-creator -s 127.0.0.1:8848 -u nacos -p nacos
+# Add a skill from Nacos and link it to discovered agents.
+nacos-cli skill-sync add skill-creator --profile team
 
-# Sync multiple skills
-nacos-cli skill-sync skill-creator skill-analyzer
+# Start the background daemon in Nacos mode.
+nacos-cli skill-sync start --profile team
 
-# Sync all skills
-nacos-cli skill-sync --all
+# Check sync status and next action hints.
+nacos-cli skill-sync status
 
-# Press Ctrl+C to stop synchronization
+# Resolve a conflict explicitly.
+nacos-cli skill-sync resolve skill-creator
 ```
 
-**Note**: `skill-sync` is only available in CLI mode, not in terminal mode.
+Local-only sync uses the same command surface without a Nacos profile:
+
+```bash
+nacos-cli skill-sync add skill-creator
+nacos-cli skill-sync start
+nacos-cli skill-sync status
+```
+
+Bulk operations are available for onboarding or cleanup:
+
+```bash
+# Add all unmanaged skills from Nacos or the local repo.
+nacos-cli skill-sync add --all --profile team
+
+# Remove one skill, or every skill, from sync management while keeping
+# usable local copies in each agent directory.
+nacos-cli skill-sync remove skill-creator
+nacos-cli skill-sync remove --all
+```
+
+For scripts or agent callers, pass explicit non-interactive choices:
+
+```bash
+nacos-cli skill-sync add skill-creator --profile team --non-interactive
+nacos-cli skill-sync add skill-creator --profile team --from codex --non-interactive
+nacos-cli skill-sync start --profile team --non-interactive
+nacos-cli skill-sync resolve skill-creator --use-nacos --non-interactive
+nacos-cli skill-sync resolve skill-creator --use-agent codex --non-interactive
+```
+
+Common status values:
+
+| Status | Meaning |
+|--------|---------|
+| `Synced` | Nacos mode is up to date. |
+| `Linked` | Local mode is linked to the central local repo. |
+| `Local changes` | Local content differs from Nacos; auto-upload uploads it as a draft when enabled. |
+| `Uploaded` | A draft was uploaded; wait for review/release. |
+| `Upload blocked` | Nacos already has a draft or reviewing version; review, release, or clear it, then auto-upload can retry. |
+| `Conflict` | Local and remote or agent versions differ; resolve with an explicit source choice. |
+
+See `docs/skill-sync-user-guide.md` for the full quickstart, conflict handling,
+auto-upload behavior, and troubleshooting flow.
 
 ### Configuration Management
 
@@ -485,6 +583,14 @@ nacos-cli profile set dev server=127.0.0.1:8848 namespace=public
 nacos-cli profile delete dev
 ```
 
+Skill Sync stores sync state per profile. `profile switch <name>` changes the
+default CLI profile, while `skill-sync` also tracks an active sync profile that
+is currently linked into agent directories. If you run a mutating `skill-sync`
+command against a different profile, the CLI prompts before switching; use
+`--switch-profile` in scripts to detach the old profile and switch explicitly.
+`skill-sync status` without `--profile` follows the active sync profile, while
+`skill-sync status --profile <name>` can inspect a saved inactive profile.
+
 ### Configuration Priority
 
 Configuration values are applied in the following priority order:
@@ -526,7 +632,7 @@ nacos-cli/
 │   ├── update_skill_scope.go  # skill-scope
 │   ├── update_skill_tags.go   # skill-tags
 │   ├── publish_skill.go       # skill-publish (deprecated wrapper)
-│   ├── sync_skill.go          # skill-sync
+│   ├── skill_sync*.go         # skill-sync commands
 │   ├── list_agentspec.go      # agentspec-list
 │   ├── describe_agentspec.go  # agentspec-describe
 │   ├── get_agentspec.go       # agentspec-get

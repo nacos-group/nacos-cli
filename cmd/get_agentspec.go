@@ -87,5 +87,6 @@ func init() {
 	getAgentSpecCmd.Flags().StringVarP(&getAgentSpecOutput, "output", "o", "", "Output directory (default: ~/.agentspecs)")
 	getAgentSpecCmd.Flags().StringVar(&getAgentSpecVersion, "version", "", "Specific version to download (e.g. v1, v2)")
 	getAgentSpecCmd.Flags().StringVar(&getAgentSpecLabel, "label", "", "Route label to resolve version (e.g. latest, stable)")
+	_ = getAgentSpecCmd.MarkFlagDirname("output")
 	rootCmd.AddCommand(getAgentSpecCmd)
 }

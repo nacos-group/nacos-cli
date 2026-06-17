@@ -8,6 +8,7 @@ import (
 
 	"github.com/nacos-group/nacos-cli/internal/client"
 	"github.com/nacos-group/nacos-cli/internal/config"
+	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
@@ -62,6 +63,23 @@ Examples:
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
 		hasEnvConfig := envHost != "" || envPortRaw != "" || envNamespace != ""
+		skillSyncCommand := isSkillSyncCommand(cmd)
+		effectiveProfile := profileName
+		if effectiveProfile == "" {
+			if currentProfile, profileErr := config.GetCurrentProfile(); profileErr == nil && currentProfile != "" {
+				effectiveProfile = currentProfile
+			} else {
+				effectiveProfile = config.DefaultProfile
+			}
+		}
+		if skillSyncCommand && profileName == "" {
+			if activeProfile, activeErr := skill.LoadActiveSyncProfile(); activeErr == nil && activeProfile != "" {
+				effectiveProfile = activeProfile
+			}
+		}
+		if skillSyncCommand {
+			skill.SetCurrentSyncProfile(effectiveProfile)
+		}
 
 		if configFile != "" {
 			// Explicit config file specified
@@ -71,15 +89,8 @@ Examples:
 			}
 		} else if !hasCommandLineConfig {
 			// No command line config provided, use profile-based config
-			envName := config.DefaultProfile
-			if profileName != "" {
-				envName = profileName
-			} else if currentProfile, profileErr := config.GetCurrentProfile(); profileErr == nil {
-				envName = currentProfile
-			} else {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to load current profile setting: %v\n", profileErr)
-			}
-			if hasEnvConfig {
+			envName := effectiveProfile
+			if hasEnvConfig || skillSyncCommand {
 				configPath, pathErr := config.GetProfileConfigPath(envName)
 				if pathErr != nil {
 					fmt.Fprintf(os.Stderr, "Warning: Failed to resolve profile config path: %v\n", pathErr)
@@ -88,6 +99,9 @@ Examples:
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: Failed to load config file: %v\n", err)
 					}
+				} else if skillSyncCommand && profileName != "" {
+					fmt.Fprintf(os.Stderr, "Error: profile %q not found; create it with 'profile set' or pass --host/--port explicitly\n", profileName)
+					os.Exit(1)
 				}
 			} else {
 				// This will load, prompt for missing fields, and save
@@ -258,6 +272,17 @@ Examples:
 	},
 }
 
+func isSkillSyncCommand(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	path := cmd.CommandPath()
+	return path == "nacos-cli skill-sync" ||
+		strings.HasPrefix(path, "nacos-cli skill-sync ") ||
+		path == "skill-sync" ||
+		strings.HasPrefix(path, "skill-sync ")
+}
+
 // SetVersionInfo sets the version information for the root command.
 // Called from main.go with values injected via ldflags.
 func SetVersionInfo(version, commit, date string) {
@@ -292,6 +317,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&scheme, "scheme", "", "Protocol scheme: http or https (default: http)")
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to configuration file")
 	rootCmd.PersistentFlags().StringVar(&profileName, "profile", "", "Profile name (e.g., dev, prod). Loads ~/.nacos-cli/<profile>.conf")
+	_ = rootCmd.MarkPersistentFlagFilename("config")
 
 	// Global flags - legacy style (for backward compatibility)
 	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")

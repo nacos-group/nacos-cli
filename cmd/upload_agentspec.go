@@ -15,10 +15,11 @@ import (
 var agentSpecUploadAll bool
 
 var uploadAgentSpecCmd = &cobra.Command{
-	Use:   "agentspec-upload [agentSpecPath]",
-	Short: "Upload an agent spec to Nacos (as ZIP, creates an editing draft)",
-	Long:  help.AgentSpecUpload.FormatForCLI("nacos-cli"),
-	Args:  cobra.MaximumNArgs(1),
+	Use:               "agentspec-upload [agentSpecPath]",
+	Short:             "Upload an agent spec to Nacos (as ZIP, creates an editing draft)",
+	Long:              help.AgentSpecUpload.FormatForCLI("nacos-cli"),
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePathArg(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			fmt.Fprintf(os.Stderr, "Error: agent spec path required\n")

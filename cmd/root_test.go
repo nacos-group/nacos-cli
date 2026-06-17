@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nacos-group/nacos-cli/internal/config"
+	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/spf13/cobra"
 )
 
@@ -214,6 +215,75 @@ func TestPersistentPreRunExplicitProfileOverridesCurrentProfile(t *testing.T) {
 	if namespace != "prod-ns" {
 		t.Fatalf("namespace = %q, want prod-ns", namespace)
 	}
+}
+
+func TestPersistentPreRunDoesNotCreateConfigForSkillSyncWithoutProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	rootCmd.PersistentPreRun(skillSyncTestCommand("add"), nil)
+
+	configPath, err := config.GetProfileConfigPath("default")
+	if err != nil {
+		t.Fatalf("get profile path: %v", err)
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		t.Fatalf("config file %s should not be created by skill-sync", configPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if serverAddr != "market.hiclaw.io:80" {
+		t.Fatalf("serverAddr = %q, want default market address", serverAddr)
+	}
+}
+
+func TestPersistentPreRunSkillSyncWithoutProfileUsesActiveProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Cleanup(func() {
+		skill.SetCurrentSyncProfile("")
+	})
+
+	teamPath, err := config.GetProfileConfigPath("team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&config.Config{Host: "10.0.0.2", Port: 8848, AuthType: "none", Namespace: "team-ns"}).SaveConfig(teamPath); err != nil {
+		t.Fatal(err)
+	}
+	localPath, err := config.GetProfileConfigPath("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&config.Config{Host: "10.0.0.3", Port: 8848, AuthType: "none", Namespace: "local-ns"}).SaveConfig(localPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetCurrentProfile("team"); err != nil {
+		t.Fatal(err)
+	}
+	if err := skill.SaveActiveSyncProfile("local"); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCmd.PersistentPreRun(skillSyncTestCommand("start"), nil)
+
+	if got := skill.CurrentSyncProfile(); got != "local" {
+		t.Fatalf("current sync profile = %q, want local", got)
+	}
+	if namespace != "local-ns" {
+		t.Fatalf("namespace = %q, want local-ns", namespace)
+	}
+}
+
+func skillSyncTestCommand(name string) *cobra.Command {
+	root := &cobra.Command{Use: "nacos-cli"}
+	sync := &cobra.Command{Use: "skill-sync"}
+	child := &cobra.Command{Use: name}
+	root.AddCommand(sync)
+	sync.AddCommand(child)
+	return child
 }
 
 func resetRootConfigForTest(t *testing.T) {

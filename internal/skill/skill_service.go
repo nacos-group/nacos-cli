@@ -71,6 +71,11 @@ func NewSkillService(nacosClient *client.NacosClient) *SkillService {
 	}
 }
 
+// Client returns the underlying NacosClient.
+func (s *SkillService) Client() *client.NacosClient {
+	return s.client
+}
+
 // SkillListResponse represents the response from skill list API
 type SkillListResponse struct {
 	TotalCount     int             `json:"totalCount"`
@@ -108,8 +113,7 @@ func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]Ski
 		return nil, 0, err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list skills failed: %w", err)
 	}
@@ -164,8 +168,7 @@ func (s *SkillService) DescribeSkill(skillName string) (*SkillDetail, error) {
 		return nil, err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("describe skill failed: %w", err)
 	}
@@ -220,8 +223,7 @@ func (s *SkillService) UpdateSkillScope(skillName, scope string) error {
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("update skill scope failed: %w", err)
 	}
@@ -255,8 +257,7 @@ func (s *SkillService) UpdateSkillBizTags(skillName, bizTags string) error {
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("update skill bizTags failed: %w", err)
 	}
@@ -319,8 +320,7 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 		return fmt.Errorf("failed to build request: %w", err)
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to get skill: %w", err)
 	}
@@ -339,9 +339,9 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 	return extractZip(zipBytes, outputDir)
 }
 
-// extractZip extracts a ZIP byte array to the target directory.
+// ExtractSkillZip extracts a ZIP byte array to the target directory.
 // ZIP entries like "skillName/SKILL.md" are extracted preserving their path structure.
-func extractZip(zipBytes []byte, targetDir string) error {
+func ExtractSkillZip(zipBytes []byte, targetDir string) error {
 	zipReader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
 		return fmt.Errorf("failed to read zip: %w", err)
@@ -386,10 +386,15 @@ func extractZip(zipBytes []byte, targetDir string) error {
 	return nil
 }
 
-// UploadSkill uploads a skill from local directory or a pre-built zip file.
+// extractZip preserves the existing private helper name for older call sites in this package.
+func extractZip(zipBytes []byte, targetDir string) error {
+	return ExtractSkillZip(zipBytes, targetDir)
+}
+
+// UploadSkill uploads a skill draft from local directory or a pre-built zip file.
 // If skillPath points to a .zip file it is uploaded directly; otherwise the
-// directory is packed into a zip on-the-fly (skillName/... structure).
-func (s *SkillService) UploadSkill(skillPath string) error {
+// directory is packed into a zip on-the-fly with files at the archive root.
+func (s *SkillService) UploadSkill(skillPath string, overwrite bool) error {
 	if err := s.client.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -409,17 +414,21 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	} else {
 		// Pack directory into zip
 		skillName = filepath.Base(skillPath)
+		walkRoot, err := resolveDirectoryRoot(skillPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve skill directory: %w", err)
+		}
 		zipBuffer = new(bytes.Buffer)
 		zipWriter := zip.NewWriter(zipBuffer)
 
-		err := filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
+		err = filepath.Walk(walkRoot, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.IsDir() {
 				return nil
 			}
-			relPath, err := filepath.Rel(skillPath, path)
+			relPath, err := filepath.Rel(walkRoot, path)
 			if err != nil {
 				return err
 			}
@@ -435,9 +444,12 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
-			_, err = io.Copy(writer, file)
-			return err
+			_, copyErr := io.Copy(writer, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create ZIP: %w", err)
@@ -465,8 +477,8 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 	}
 
 	// Send HTTP request
-	uploadURL := fmt.Sprintf("%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s",
-		s.client.BaseURL(), s.client.Namespace)
+	uploadURL := fmt.Sprintf("%s/nacos/v3/admin/ai/skills/upload?namespaceId=%s&overwrite=%t",
+		s.client.BaseURL(), s.client.Namespace, overwrite)
 	req, err := s.client.NewAuthedRequest("POST", uploadURL, body)
 	if err != nil {
 		return err
@@ -474,8 +486,7 @@ func (s *SkillService) UploadSkill(skillPath string) error {
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
@@ -520,8 +531,7 @@ func (s *SkillService) PublishSkill(skillName, version string, updateLatestLabel
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("publish failed: %w", err)
 	}
@@ -567,8 +577,7 @@ func (s *SkillService) SubmitSkill(skillName, version string) error {
 		return err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("submit failed: %w", err)
 	}
@@ -592,6 +601,104 @@ func (s *SkillService) SubmitSkill(skillName, version string) error {
 	}
 
 	return nil
+}
+
+// SkillQueryResult holds the result of a conditional skill query.
+type SkillQueryResult struct {
+	Md5             string // content fingerprint from X-Nacos-Skill-Md5 header
+	ResolvedVersion string // resolved version from X-Nacos-Skill-Resolved-Version header
+	Updated         bool   // true if new content was downloaded
+	Deleted         bool   // true if the skill was not found (404)
+	ZipBytes        []byte // ZIP payload when Updated=true
+}
+
+// FetchSkill performs a conditional skill download using the MD5 fingerprint.
+// If the server content matches the provided md5, HTTP 304 is returned and no ZIP is downloaded.
+// The returned ZIP payload is not extracted; callers decide when and where to apply it.
+func (s *SkillService) FetchSkill(skillName, version, label, md5 string) (*SkillQueryResult, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, err
+	}
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("name", skillName)
+	if version != "" {
+		params.Set("version", version)
+	}
+	if label != "" {
+		params.Set("label", label)
+	}
+	if md5 != "" {
+		params.Set("md5", md5)
+	}
+
+	apiURL := fmt.Sprintf("%s/nacos/v3/client/ai/skills?%s",
+		s.client.BaseURL(), params.Encode())
+
+	req, err := s.client.NewAuthedRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query skill: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// HTTP 304 Not Modified - content unchanged.
+	// Still read the resolved version header so callers can detect label
+	// switches even when server claims md5 is unchanged.
+	if resp.StatusCode == http.StatusNotModified {
+		responseMd5 := resp.Header.Get("X-Nacos-Skill-Md5")
+		if responseMd5 == "" {
+			responseMd5 = md5
+		}
+		return &SkillQueryResult{
+			Md5:             responseMd5,
+			ResolvedVersion: resp.Header.Get("X-Nacos-Skill-Resolved-Version"),
+			Updated:         false,
+		}, nil
+	}
+
+	// HTTP 404 Not Found - skill deleted
+	if resp.StatusCode == http.StatusNotFound {
+		return &SkillQueryResult{Deleted: true}, nil
+	}
+
+	zipBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, client.ParseHTTPError(resp.StatusCode, zipBytes, "query skill")
+	}
+
+	// Extract response headers
+	newMd5 := resp.Header.Get("X-Nacos-Skill-Md5")
+	resolvedVersion := resp.Header.Get("X-Nacos-Skill-Resolved-Version")
+
+	return &SkillQueryResult{
+		Md5:             newMd5,
+		ResolvedVersion: resolvedVersion,
+		Updated:         true,
+		ZipBytes:        zipBytes,
+	}, nil
+}
+
+// QuerySkill performs a conditional skill download and extracts the ZIP to outputDir on 200.
+func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 string) (*SkillQueryResult, error) {
+	result, err := s.FetchSkill(skillName, version, label, md5)
+	if err != nil {
+		return nil, err
+	}
+	if result.Updated {
+		if err := extractZip(result.ZipBytes, outputDir); err != nil {
+			return nil, fmt.Errorf("failed to extract skill: %w", err)
+		}
+	}
+	return result, nil
 }
 
 // ParseSkillMD parses SKILL.md file

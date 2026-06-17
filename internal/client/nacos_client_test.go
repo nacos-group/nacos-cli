@@ -131,3 +131,25 @@ func TestFetchStsCredentialsSendsClusterIDHeader(t *testing.T) {
 		t.Fatalf("STS credentials = (%q, %q, %q), want (ak, sk, token)", c.AccessKey, c.SecretKey, c.SecurityToken)
 	}
 }
+
+func TestNacosClientReusesHTTPClientWithTimeout(t *testing.T) {
+	c, err := NewNacosClient(
+		"127.0.0.1:8848",
+		"public",
+		AuthTypeNone,
+		"", "", "", "", "", "", "",
+		"http",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := c.HTTPClient()
+	second := c.HTTPClient()
+	if first != second {
+		t.Fatal("HTTPClient returned different instances")
+	}
+	if first.Timeout != DefaultHTTPTimeout {
+		t.Fatalf("timeout = %s, want %s", first.Timeout, DefaultHTTPTimeout)
+	}
+}

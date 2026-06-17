@@ -21,10 +21,11 @@ var publishAll bool
 //
 //	skill-upload  -> skill-review  -> skill-release
 var publishSkillCmd = &cobra.Command{
-	Use:   "skill-publish [skillPath]",
-	Short: "[DEPRECATED] Upload then submit a skill draft for review (use skill-upload/skill-review/skill-release instead)",
-	Long:  help.SkillPublish.FormatForCLI("nacos-cli"),
-	Args:  cobra.MaximumNArgs(1),
+	Use:               "skill-publish [skillPath]",
+	Short:             "[DEPRECATED] Upload then submit a skill draft for review (use skill-upload/skill-review/skill-release instead)",
+	Long:              help.SkillPublish.FormatForCLI("nacos-cli"),
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePathArg(0),
 	Run: func(cmd *cobra.Command, args []string) {
 		printPublishDeprecationWarning()
 
@@ -70,7 +71,7 @@ func publishSingleLegacy(skillPath string, skillService *skill.SkillService) {
 
 	skillName := deriveSkillNameFromPath(absPath)
 	fmt.Printf("[1/2] Uploading skill: %s...\n", skillName)
-	if err := skillService.UploadSkill(absPath); err != nil {
+	if err := skillService.UploadSkill(absPath, false); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: upload failed for '%s': %v\n", skillName, err)
 		os.Exit(1)
 	}
@@ -127,7 +128,7 @@ func publishAllLegacy(folderPath string, skillService *skill.SkillService) {
 		fmt.Println(strings.Repeat("=", 80))
 
 		skillPath := filepath.Join(folderPath, skillName)
-		if err := skillService.UploadSkill(skillPath); err != nil {
+		if err := skillService.UploadSkill(skillPath, false); err != nil {
 			fmt.Printf("Upload failed: %v\n", err)
 			failedCount++
 			fmt.Println()

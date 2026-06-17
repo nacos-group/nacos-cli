@@ -1,4 +1,0 @@
-interface:
-  display_name: "Nacos Skill Sync"
-  short_description: "Sync skills across local agents and Nacos"
-  default_prompt: "Use $nacos-skill-sync to add and synchronize a skill across my agents."

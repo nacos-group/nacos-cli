@@ -431,7 +431,7 @@ func validateSkillZip(zipBytes []byte, skillName string) error {
 	return nil
 }
 
-func replaceSkillFromZip(zipBytes []byte, outputDir, skillName string) error {
+func replaceSkillFromZip(zipBytes []byte, outputDir, skillName string) (retErr error) {
 	if err := validateSkillZip(zipBytes, skillName); err != nil {
 		return err
 	}
@@ -443,7 +443,11 @@ func replaceSkillFromZip(zipBytes []byte, outputDir, skillName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(stageRoot)
+	defer func() {
+		if err := os.RemoveAll(stageRoot); err != nil && retErr == nil {
+			retErr = fmt.Errorf("failed to clean temp directory: %w", err)
+		}
+	}()
 
 	if err := ExtractSkillZip(zipBytes, stageRoot); err != nil {
 		return err
@@ -469,7 +473,9 @@ func replaceSkillFromZip(zipBytes []byte, outputDir, skillName string) error {
 
 	if err := os.Rename(stagedSkillDir, targetSkillDir); err != nil {
 		if backupCreated {
-			_ = os.Rename(backupSkillDir, targetSkillDir)
+			if rollbackErr := os.Rename(backupSkillDir, targetSkillDir); rollbackErr != nil {
+				return fmt.Errorf("failed to replace skill directory: %w; rollback failed: %v", err, rollbackErr)
+			}
 		}
 		return fmt.Errorf("failed to replace skill directory: %w", err)
 	}

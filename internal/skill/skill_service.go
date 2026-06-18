@@ -488,11 +488,6 @@ func replaceSkillFromZip(zipBytes []byte, outputDir, skillName string) (retErr e
 	return nil
 }
 
-// extractZip preserves the existing private helper name for older call sites in this package.
-func extractZip(zipBytes []byte, targetDir string) error {
-	return ExtractSkillZip(zipBytes, targetDir)
-}
-
 // UploadSkill uploads a skill draft from local directory or a pre-built zip file.
 // If skillPath points to a .zip file it is uploaded directly; otherwise the
 // directory is packed into a zip on-the-fly with files at the archive root.

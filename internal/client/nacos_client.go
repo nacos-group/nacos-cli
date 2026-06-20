@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	AuthTypeNone     = "none"       // No authentication (public registry)
-	AuthTypeNacos    = "nacos"      // Username/password authentication
-	AuthTypeAliyun   = "aliyun"     // AccessKey/SecretKey authentication
-	AuthTypeStsToken = "sts-hiclaw" // STS temporary credential via Hiclaw controller
+	AuthTypeNone          = "none"           // No authentication (public registry)
+	AuthTypeNacos         = "nacos"          // Username/password authentication
+	AuthTypeAliyun        = "aliyun"         // AccessKey/SecretKey authentication
+	AuthTypeStsToken      = "sts-hiclaw"     // STS temporary credential via Hiclaw controller
+	AuthTypeStsAgentTeams = "sts-agentteams" // STS temporary credential via AgentTeams controller
 )
 
 const DefaultHTTPTimeout = 30 * time.Second
@@ -51,8 +52,8 @@ type NacosClient struct {
 	AccessKey        string
 	SecretKey        string
 	SecurityToken    string // STS temporary security token
-	StsURL           string // STS credential endpoint URL (AuthType=sts-hiclaw)
-	StsAuthToken     string // Bearer token for Hiclaw controller authentication
+	StsURL           string // STS credential endpoint URL
+	StsAuthToken     string // Bearer token for controller authentication
 	AccessToken      string
 	TokenExpireAt    time.Time
 	stsCredExpireAt  time.Time // expiration time of STS credentials
@@ -60,6 +61,10 @@ type NacosClient struct {
 	httpClient       *resty.Client
 	rawHTTPClient    *http.Client
 	Verbose          bool // Enable verbose/debug output
+}
+
+func IsStsAuthType(authType string) bool {
+	return authType == AuthTypeStsToken || authType == AuthTypeStsAgentTeams
 }
 
 // Config represents a Nacos configuration
@@ -185,7 +190,7 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 		if err := c.login(); err != nil {
 			return nil, fmt.Errorf("login failed: %w", err)
 		}
-	case AuthTypeStsToken:
+	case AuthTypeStsToken, AuthTypeStsAgentTeams:
 		if c.StsURL != "" {
 			if err := c.fetchStsCredentials(); err != nil {
 				return nil, fmt.Errorf("fetch STS credentials failed: %w", err)
@@ -306,9 +311,10 @@ func (c *NacosClient) applyLoginFromMap(m map[string]interface{}) bool {
 
 // EnsureTokenValid ensures the access token / STS credentials are valid, refreshing if necessary
 func (c *NacosClient) EnsureTokenValid() error {
-	switch c.AuthType {
-	case AuthTypeStsToken:
+	if IsStsAuthType(c.AuthType) {
 		return c.ensureStsCredentials()
+	}
+	switch c.AuthType {
 	case AuthTypeNacos:
 		if c.AccessToken == "" {
 			return c.login()
@@ -334,7 +340,7 @@ func (c *NacosClient) ensureStsCredentials() error {
 	return nil
 }
 
-// doWithStsRetry runs build(); if the response is 401/403 under sts-hiclaw auth,
+// doWithStsRetry runs build(); if the response is 401/403 under STS auth,
 // it forces an STS credential refresh and invokes build() once more. The closure
 // must rebuild the request each call so the SPAS signature picks up the refreshed
 // credentials and a current timestamp.
@@ -343,37 +349,37 @@ func (c *NacosClient) doWithStsRetry(build func() (*resty.Response, error)) (*re
 	if err != nil {
 		return resp, err
 	}
-	if c.AuthType != AuthTypeStsToken {
+	if !IsStsAuthType(c.AuthType) {
 		return resp, nil
 	}
 	if resp.StatusCode() != 401 && resp.StatusCode() != 403 {
 		return resp, nil
 	}
-	fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: request returned HTTP %d, refreshing credentials and retrying once\n", resp.StatusCode())
+	fmt.Fprintf(os.Stderr, "[info] %s: request returned HTTP %d, refreshing credentials and retrying once\n", c.AuthType, resp.StatusCode())
 	if refreshErr := c.fetchStsCredentials(); refreshErr != nil {
-		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: credential refresh failed during retry: %v\n", refreshErr)
+		fmt.Fprintf(os.Stderr, "[warn] %s: credential refresh failed during retry: %v\n", c.AuthType, refreshErr)
 		return resp, nil
 	}
 	retryResp, retryErr := build()
 	if retryErr != nil {
-		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: retry after credential refresh failed: %v\n", retryErr)
+		fmt.Fprintf(os.Stderr, "[warn] %s: retry after credential refresh failed: %v\n", c.AuthType, retryErr)
 	} else {
-		fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: retry after credential refresh returned HTTP %d\n", retryResp.StatusCode())
+		fmt.Fprintf(os.Stderr, "[info] %s: retry after credential refresh returned HTTP %d\n", c.AuthType, retryResp.StatusCode())
 	}
 	return retryResp, retryErr
 }
 
 // fetchStsCredentials calls the STS URL to obtain temporary AK/SK/SecurityToken
 func (c *NacosClient) fetchStsCredentials() error {
-	fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: fetching STS credentials from %s\n", c.StsURL)
+	fmt.Fprintf(os.Stderr, "[info] %s: fetching STS credentials from %s\n", c.AuthType, c.StsURL)
 	req := c.httpClient.R().
 		SetHeader("Authorization", "Bearer "+c.StsAuthToken)
-	if clusterID := os.Getenv("HICLAW_CLUSTER_ID"); clusterID != "" {
+	if clusterID := os.Getenv(c.stsClusterIDEnvName()); clusterID != "" {
 		req.SetHeader("X-HiClaw-Cluster-ID", clusterID)
 	}
 	resp, err := req.Post(c.StsURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: STS request failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[warn] %s: STS request failed: %v\n", c.AuthType, err)
 		return fmt.Errorf("request STS URL failed: %w", err)
 	}
 	if c.Verbose {
@@ -381,7 +387,7 @@ func (c *NacosClient) fetchStsCredentials() error {
 		fmt.Fprintf(os.Stderr, "[debug] STS response body length: %d\n", len(resp.Body()))
 	}
 	if resp.StatusCode() != 200 {
-		fmt.Fprintf(os.Stderr, "[warn] sts-hiclaw: STS endpoint returned HTTP %d\n", resp.StatusCode())
+		fmt.Fprintf(os.Stderr, "[warn] %s: STS endpoint returned HTTP %d\n", c.AuthType, resp.StatusCode())
 		return fmt.Errorf("STS URL returned HTTP %d: %s", resp.StatusCode(), string(resp.Body()))
 	}
 	var stsResp stsTokenResponse
@@ -407,9 +413,16 @@ func (c *NacosClient) fetchStsCredentials() error {
 		fmt.Fprintf(os.Stderr, "[warn] STS response missing expires_in_sec and expiration, falling back to default TTL %s\n", defaultStsCredTTL)
 		c.stsCredExpireAt = time.Now().Add(defaultStsCredTTL)
 	}
-	fmt.Fprintf(os.Stderr, "[info] sts-hiclaw: STS credentials refreshed (accessKey=%s, expires=%s)\n",
-		maskAccessKey(c.AccessKey), c.stsCredExpireAt.Format(time.RFC3339))
+	fmt.Fprintf(os.Stderr, "[info] %s: STS credentials refreshed (accessKey=%s, expires=%s)\n",
+		c.AuthType, maskAccessKey(c.AccessKey), c.stsCredExpireAt.Format(time.RFC3339))
 	return nil
+}
+
+func (c *NacosClient) stsClusterIDEnvName() string {
+	if c.AuthType == AuthTypeStsAgentTeams {
+		return "AGENTTEAMS_CLUSTER_ID"
+	}
+	return "HICLAW_CLUSTER_ID"
 }
 
 // maskAccessKey returns a short masked form of an access key for logs (first 8 chars + ...).
@@ -445,7 +458,7 @@ func spasSign(signData, secretKey string) string {
 const aiResourceGroup = "DEFAULT_GROUP"
 
 // NewAuthedRequest creates an *http.Request with authentication headers already applied.
-// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/sts-hiclaw auth.
+// It sets the Bearer token header for nacos auth and SPAS headers for aliyun/STS auth.
 // AI resource APIs (skill, agentspec) use namespaceId as tenant and DEFAULT_GROUP as group
 // for SPAS signature calculation.
 func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*http.Request, error) {
@@ -457,8 +470,8 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 	if c.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	}
-	// SPAS headers (aliyun/sts-hiclaw auth): tenant=namespaceId, group=DEFAULT_GROUP
-	if (c.AuthType == AuthTypeAliyun || c.AuthType == AuthTypeStsToken) && c.AccessKey != "" && c.SecretKey != "" {
+	// SPAS headers (aliyun/STS auth): tenant=namespaceId, group=DEFAULT_GROUP
+	if (c.AuthType == AuthTypeAliyun || IsStsAuthType(c.AuthType)) && c.AccessKey != "" && c.SecretKey != "" {
 		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
 		tenant := c.Namespace
 		if tenant == "public" {
@@ -468,7 +481,7 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 		req.Header.Set("timeStamp", ts)
 		req.Header.Set("Spas-AccessKey", c.AccessKey)
 		req.Header.Set("Spas-Signature", spasSign(signData, c.SecretKey))
-		if c.AuthType == AuthTypeStsToken && c.SecurityToken != "" {
+		if IsStsAuthType(c.AuthType) && c.SecurityToken != "" {
 			req.Header.Set("Spas-SecurityToken", c.SecurityToken)
 		}
 		if c.Verbose {
@@ -484,7 +497,7 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 
 // setSpasHeaders sets Aliyun/STS authentication headers for SPAS signature
 func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
-	if (c.AuthType != AuthTypeAliyun && c.AuthType != AuthTypeStsToken) || c.AccessKey == "" || c.SecretKey == "" {
+	if (c.AuthType != AuthTypeAliyun && !IsStsAuthType(c.AuthType)) || c.AccessKey == "" || c.SecretKey == "" {
 		return
 	}
 	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -496,7 +509,7 @@ func (c *NacosClient) setSpasHeaders(req *resty.Request, tenant, group string) {
 	}
 	signData := getSignData(normalizedTenant, group, ts)
 	req.SetHeader("Spas-Signature", spasSign(signData, c.SecretKey))
-	if c.AuthType == AuthTypeStsToken && c.SecurityToken != "" {
+	if IsStsAuthType(c.AuthType) && c.SecurityToken != "" {
 		req.SetHeader("Spas-SecurityToken", c.SecurityToken)
 	}
 }

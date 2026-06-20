@@ -414,9 +414,9 @@ func (t *Terminal) printWelcome() {
 		if t.client.AccessKey != "" {
 			fmt.Printf("\033[33mUser:\033[0m %s (AccessKey)\n", t.client.AccessKey)
 		}
-	case client.AuthTypeStsToken:
+	case client.AuthTypeStsToken, client.AuthTypeStsAgentTeams:
 		if t.client.AccessKey != "" {
-			fmt.Printf("\033[33mUser:\033[0m %s (STS-HICLAW)\n", t.client.AccessKey)
+			fmt.Printf("\033[33mUser:\033[0m %s (%s)\n", t.client.AccessKey, strings.ToUpper(t.client.AuthType))
 		}
 	case client.AuthTypeNone:
 		fmt.Printf("\033[33mAuth:\033[0m None (public access)\n")
@@ -744,11 +744,11 @@ func (t *Terminal) getAuthTypeDisplay() string {
 			return fmt.Sprintf("aliyun (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
 		}
 		return "aliyun"
-	case client.AuthTypeStsToken:
+	case client.AuthTypeStsToken, client.AuthTypeStsAgentTeams:
 		if t.client.AccessKey != "" {
-			return fmt.Sprintf("sts-hiclaw (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
+			return fmt.Sprintf("%s (accessKey: %s...)", t.client.AuthType, t.client.AccessKey[:min(8, len(t.client.AccessKey))])
 		}
-		return "sts-hiclaw"
+		return t.client.AuthType
 	case client.AuthTypeNone:
 		return "none (public access)"
 	default:

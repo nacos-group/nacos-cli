@@ -25,7 +25,7 @@ type Config struct {
 	Host          string `yaml:"host"`
 	Port          int    `yaml:"port"`
 	Scheme        string `yaml:"scheme"`   // http | https (default: http)
-	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-hiclaw
+	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-hiclaw | sts-agentteams
 	Username      string `yaml:"username"`
 	Password      string `yaml:"password"`
 	AccessKey     string `yaml:"accessKey"`     // Aliyun AK (AuthType=aliyun)
@@ -305,8 +305,8 @@ func (c *Config) IsComplete() bool {
 		return c.AccessKey != "" && c.SecretKey != ""
 	}
 
-	if authType == "sts-url" || authType == "sts-hiclaw" {
-		// sts-hiclaw credentials are fetched dynamically from HICLAW_CONTROLLER_URL env var
+	if isStsAuthType(authType) {
+		// STS credentials are fetched dynamically from controller env vars.
 		return true
 	}
 
@@ -336,8 +336,8 @@ func (c *Config) GetMissingFields() []string {
 		if c.SecretKey == "" {
 			missing = append(missing, "secretKey")
 		}
-	} else if authType == "sts-url" || authType == "sts-hiclaw" {
-		// sts-hiclaw credentials are fetched dynamically; no config fields required
+	} else if isStsAuthType(authType) {
+		// STS credentials are fetched dynamically; no config fields required
 	} else {
 		// Nacos auth
 		if c.Username == "" {
@@ -499,11 +499,15 @@ func NormalizeAuthType(authType string) (string, error) {
 		return "sts-hiclaw", nil
 	}
 	switch authType {
-	case "none", "nacos", "aliyun", "sts-hiclaw":
+	case "none", "nacos", "aliyun", "sts-hiclaw", "sts-agentteams":
 		return authType, nil
 	default:
-		return "", fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-hiclaw')", authType)
+		return "", fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", authType)
 	}
+}
+
+func isStsAuthType(authType string) bool {
+	return authType == "sts-url" || authType == "sts-hiclaw" || authType == "sts-agentteams"
 }
 
 func normalizeConfigKey(key string) string {
@@ -622,7 +626,7 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for auth type if not set
 	if c.AuthType == "" {
-		fmt.Print("Enter auth type (none/nacos/aliyun/sts-hiclaw) [none]: ")
+		fmt.Print("Enter auth type (none/nacos/aliyun/sts-hiclaw/sts-agentteams) [none]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read auth type: %w", err)
@@ -630,13 +634,13 @@ func (c *Config) PromptForMissingFields() error {
 		input = strings.TrimSpace(strings.ToLower(input))
 		if input == "" {
 			c.AuthType = "none"
-		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts-hiclaw" || input == "sts-url" {
+		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts-hiclaw" || input == "sts-agentteams" || input == "sts-url" {
 			if input == "sts-url" {
 				input = "sts-hiclaw"
 			}
 			c.AuthType = input
 		} else {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-hiclaw')", input)
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", input)
 		}
 	}
 
@@ -835,15 +839,15 @@ func (c *Config) PromptForUpdate() error {
 	if currentAuthType == "" {
 		currentAuthType = "none"
 	}
-	fmt.Printf("Enter auth type (none/nacos/aliyun/sts-hiclaw) [%s]: ", currentAuthType)
+	fmt.Printf("Enter auth type (none/nacos/aliyun/sts-hiclaw/sts-agentteams) [%s]: ", currentAuthType)
 	input, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read auth type: %w", err)
 	}
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input != "" {
-		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts-hiclaw" && input != "sts-url" {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun' or 'sts-hiclaw')", input)
+		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts-hiclaw" && input != "sts-agentteams" && input != "sts-url" {
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", input)
 		}
 		if input == "sts-url" {
 			input = "sts-hiclaw"
@@ -887,9 +891,12 @@ func (c *Config) PromptForUpdate() error {
 		if c.SecretKey == "" {
 			return fmt.Errorf("secret key is required for %s auth", c.AuthType)
 		}
-	} else if c.AuthType == "sts-hiclaw" {
-		// sts-hiclaw: credentials fetched dynamically from HICLAW_CONTROLLER_URL env var
-		fmt.Println("Note: sts-hiclaw credentials are obtained from HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables.")
+	} else if isStsAuthType(c.AuthType) {
+		if c.AuthType == "sts-agentteams" {
+			fmt.Println("Note: sts-agentteams credentials are obtained from AGENTTEAMS_CONTROLLER_URL and AGENTTEAMS_AUTH_TOKEN_FILE environment variables.")
+		} else {
+			fmt.Println("Note: sts-hiclaw credentials are obtained from HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables.")
+		}
 	} else if c.AuthType == "nacos" {
 		// Nacos auth - Username
 		currentUser := formatCurrent(c.Username, true)

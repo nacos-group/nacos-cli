@@ -99,6 +99,34 @@ func TestPersistentPreRunDoesNotAutoDetectStsHiclaw(t *testing.T) {
 	}
 }
 
+func TestPersistentPreRunStsAgentTeamsUsesAgentTeamsEnv(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("NACOS_HOST", "127.0.0.1")
+	t.Setenv("NACOS_AUTH_TYPE", "sts-agentteams")
+	t.Setenv("HICLAW_CONTROLLER_URL", "http://hiclaw-controller")
+	t.Setenv("HICLAW_AUTH_TOKEN_FILE", filepath.Join(t.TempDir(), "hiclaw-token"))
+
+	tokenFile := filepath.Join(t.TempDir(), "agentteams-token")
+	if err := os.WriteFile(tokenFile, []byte("agentteams-token\n"), 0600); err != nil {
+		t.Fatalf("write token: %v", err)
+	}
+	t.Setenv("AGENTTEAMS_CONTROLLER_URL", "http://agentteams-controller/")
+	t.Setenv("AGENTTEAMS_AUTH_TOKEN_FILE", tokenFile)
+
+	rootCmd.PersistentPreRun(&cobra.Command{Use: "skill-list"}, nil)
+
+	if authType != "sts-agentteams" {
+		t.Fatalf("authType = %q, want sts-agentteams", authType)
+	}
+	if stsURL != "http://agentteams-controller/api/v1/credentials/sts" {
+		t.Fatalf("stsURL = %q, want agentteams controller STS URL", stsURL)
+	}
+	if stsAuthToken != "agentteams-token" {
+		t.Fatalf("stsAuthToken = %q, want agentteams-token", stsAuthToken)
+	}
+}
+
 func TestSchemePriority_HttpHostOverridesProfileHttps(t *testing.T) {
 	resetRootConfigForTest(t)
 

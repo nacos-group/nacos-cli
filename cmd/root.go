@@ -58,7 +58,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType == "sts-hiclaw" || scheme != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType != "" || scheme != ""
 		envHost := strings.TrimSpace(os.Getenv("NACOS_HOST"))
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
@@ -179,6 +179,14 @@ Examples:
 				authType = envAuthType
 			}
 		}
+		if authType != "" {
+			normalizedAuthType, normalizeErr := config.NormalizeAuthType(authType)
+			if normalizeErr != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", normalizeErr)
+				os.Exit(1)
+			}
+			authType = normalizedAuthType
+		}
 
 		// Username: command line > config file
 		if username == "" && fileConfig != nil && fileConfig.Username != "" {
@@ -220,29 +228,14 @@ Examples:
 			scheme = "http"
 		}
 
-		// For sts-hiclaw auth, read HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE from environment variables
-		if authType == "sts-hiclaw" {
-			if stsURL == "" {
-				controllerURL := os.Getenv("HICLAW_CONTROLLER_URL")
-				if controllerURL != "" {
-					stsURL = strings.TrimRight(controllerURL, "/") + "/api/v1/credentials/sts"
-				}
-			}
-			if stsAuthToken == "" {
-				tokenFile := os.Getenv("HICLAW_AUTH_TOKEN_FILE")
-				if tokenFile != "" {
-					data, err := os.ReadFile(tokenFile)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Error: failed to read HICLAW_AUTH_TOKEN_FILE (%s): %v\n", tokenFile, err)
-						os.Exit(1)
-					}
-					stsAuthToken = strings.TrimSpace(string(data))
-				}
-			}
-			if stsURL == "" || stsAuthToken == "" {
-				fmt.Fprintf(os.Stderr, "Error: sts-hiclaw auth requires HICLAW_CONTROLLER_URL and HICLAW_AUTH_TOKEN_FILE environment variables\n")
+		if client.IsStsAuthType(authType) && (stsURL == "" || stsAuthToken == "") {
+			envStsURL, envStsAuthToken, stsErr := loadStsAuthFromEnv(authType)
+			if stsErr != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", stsErr)
 				os.Exit(1)
 			}
+			stsURL = envStsURL
+			stsAuthToken = envStsAuthToken
 		}
 
 		if verbose {
@@ -310,6 +303,27 @@ func parseNacosEnvPort(rawPort string) int {
 	return envPort
 }
 
+func loadStsAuthFromEnv(authType string) (string, string, error) {
+	controllerEnv, tokenFileEnv := stsAuthEnvNames(authType)
+	controllerURL := os.Getenv(controllerEnv)
+	tokenFile := os.Getenv(tokenFileEnv)
+	if controllerURL == "" || tokenFile == "" {
+		return "", "", fmt.Errorf("%s auth requires %s and %s environment variables", authType, controllerEnv, tokenFileEnv)
+	}
+	data, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read %s (%s): %w", tokenFileEnv, tokenFile, err)
+	}
+	return strings.TrimRight(controllerURL, "/") + "/api/v1/credentials/sts", strings.TrimSpace(string(data)), nil
+}
+
+func stsAuthEnvNames(authType string) (string, string) {
+	if authType == client.AuthTypeStsAgentTeams {
+		return "AGENTTEAMS_CONTROLLER_URL", "AGENTTEAMS_AUTH_TOKEN_FILE"
+	}
+	return "HICLAW_CONTROLLER_URL", "HICLAW_AUTH_TOKEN_FILE"
+}
+
 func init() {
 	// Global flags - new style
 	rootCmd.PersistentFlags().StringVar(&host, "host", "", "Nacos server host (default: market.hiclaw.io)")
@@ -322,12 +336,12 @@ func init() {
 	// Global flags - legacy style (for backward compatibility)
 	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace ID")
-	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos | aliyun | sts-hiclaw")
+	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos | aliyun | sts-hiclaw | sts-agentteams")
 	rootCmd.PersistentFlags().StringVarP(&username, "username", "u", "", "Username (nacos auth)")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "Password (nacos auth)")
-	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/sts-hiclaw auth)")
-	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/sts-hiclaw auth)")
-	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (sts-hiclaw auth)")
+	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/STS auth)")
+	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/STS auth)")
+	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (STS auth)")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose/debug output")
 
 	// Mark legacy server flag as deprecated but still functional

@@ -368,3 +368,21 @@ func TestConfigSetValueAndGetValue(t *testing.T) {
 		t.Fatalf("server value=%q sensitive=%v", value, sensitive)
 	}
 }
+
+func TestNormalizeAuthTypeAcceptsStsAgentTeams(t *testing.T) {
+	authType, err := NormalizeAuthType("STS-AgentTeams")
+	if err != nil {
+		t.Fatalf("NormalizeAuthType() error = %v", err)
+	}
+	if authType != "sts-agentteams" {
+		t.Fatalf("auth type = %q, want sts-agentteams", authType)
+	}
+
+	cfg := Config{Host: "127.0.0.1", AuthType: authType}
+	if !cfg.IsComplete() {
+		t.Fatalf("sts-agentteams config should be complete without local credentials")
+	}
+	if missing := cfg.GetMissingFields(); len(missing) != 0 {
+		t.Fatalf("missing fields = %v, want none", missing)
+	}
+}

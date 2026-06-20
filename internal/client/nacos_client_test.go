@@ -132,6 +132,31 @@ func TestFetchStsCredentialsSendsClusterIDHeader(t *testing.T) {
 	}
 }
 
+func TestFetchStsCredentialsSendsAgentTeamsClusterIDHeader(t *testing.T) {
+	t.Setenv("AGENTTEAMS_CLUSTER_ID", "agentteams-cluster")
+	t.Setenv("HICLAW_CLUSTER_ID", "hiclaw-cluster")
+
+	stsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-HiClaw-Cluster-ID"); got != "agentteams-cluster" {
+			t.Fatalf("X-HiClaw-Cluster-ID = %q, want %q", got, "agentteams-cluster")
+		}
+		_, _ = w.Write([]byte(`{"access_key_id":"ak","access_key_secret":"sk","security_token":"st","expires_in_sec":60}`))
+	}))
+	defer stsServer.Close()
+
+	if _, err := NewNacosClient(
+		"localhost:8848",
+		"public",
+		AuthTypeStsAgentTeams,
+		"", "", "", "", "",
+		stsServer.URL,
+		"auth-token",
+		"http",
+	); err != nil {
+		t.Fatalf("NewNacosClient() error = %v", err)
+	}
+}
+
 func TestNacosClientReusesHTTPClientWithTimeout(t *testing.T) {
 	c, err := NewNacosClient(
 		"127.0.0.1:8848",

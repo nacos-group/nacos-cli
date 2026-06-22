@@ -58,7 +58,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || authType != "" || scheme != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || isCommandLineStsAuthType(authType) || scheme != ""
 		envHost := strings.TrimSpace(os.Getenv("NACOS_HOST"))
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
@@ -274,6 +274,14 @@ func isSkillSyncCommand(cmd *cobra.Command) bool {
 		strings.HasPrefix(path, "nacos-cli skill-sync ") ||
 		path == "skill-sync" ||
 		strings.HasPrefix(path, "skill-sync ")
+}
+
+func isCommandLineStsAuthType(value string) bool {
+	authType, err := config.NormalizeAuthType(value)
+	if err != nil {
+		return false
+	}
+	return client.IsStsAuthType(authType)
 }
 
 // SetVersionInfo sets the version information for the root command.

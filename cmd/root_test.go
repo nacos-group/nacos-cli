@@ -127,6 +127,42 @@ func TestPersistentPreRunStsAgentTeamsUsesAgentTeamsEnv(t *testing.T) {
 	}
 }
 
+func TestPersistentPreRunAuthTypeOverrideKeepsProfileConfig(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+
+	profilePath, err := config.GetProfileConfigPath("dev")
+	if err != nil {
+		t.Fatalf("get profile path: %v", err)
+	}
+	cfg := &config.Config{
+		Host:      "10.0.0.2",
+		Port:      8848,
+		AuthType:  "none",
+		AccessKey: "profile-ak",
+		SecretKey: "profile-sk",
+	}
+	if err := cfg.SaveConfig(profilePath); err != nil {
+		t.Fatalf("save profile: %v", err)
+	}
+	if err := config.SetCurrentProfile("dev"); err != nil {
+		t.Fatalf("set current profile: %v", err)
+	}
+	authType = "aliyun"
+
+	rootCmd.PersistentPreRun(&cobra.Command{Use: "skill-list"}, nil)
+
+	if serverAddr != "10.0.0.2:8848" {
+		t.Fatalf("serverAddr = %q, want %q", serverAddr, "10.0.0.2:8848")
+	}
+	if authType != "aliyun" {
+		t.Fatalf("authType = %q, want aliyun", authType)
+	}
+	if accessKey != "profile-ak" || secretKey != "profile-sk" {
+		t.Fatalf("profile credentials not loaded: accessKey=%q secretKey=%q", accessKey, secretKey)
+	}
+}
+
 func TestSchemePriority_HttpHostOverridesProfileHttps(t *testing.T) {
 	resetRootConfigForTest(t)
 

@@ -375,7 +375,7 @@ func (c *NacosClient) fetchStsCredentials() error {
 	req := c.httpClient.R().
 		SetHeader("Authorization", "Bearer "+c.StsAuthToken)
 	if clusterID := os.Getenv(c.stsClusterIDEnvName()); clusterID != "" {
-		req.SetHeader("X-HiClaw-Cluster-ID", clusterID)
+		req.SetHeader(c.stsClusterIDHeaderName(), clusterID)
 	}
 	resp, err := req.Post(c.StsURL)
 	if err != nil {
@@ -423,6 +423,13 @@ func (c *NacosClient) stsClusterIDEnvName() string {
 		return "AGENTTEAMS_CLUSTER_ID"
 	}
 	return "HICLAW_CLUSTER_ID"
+}
+
+func (c *NacosClient) stsClusterIDHeaderName() string {
+	if c.AuthType == AuthTypeStsAgentTeams {
+		return "X-AgentTeams-Cluster-ID"
+	}
+	return "X-HiClaw-Cluster-ID"
 }
 
 // maskAccessKey returns a short masked form of an access key for logs (first 8 chars + ...).

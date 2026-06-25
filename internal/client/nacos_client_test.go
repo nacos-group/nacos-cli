@@ -137,8 +137,11 @@ func TestFetchStsCredentialsSendsAgentTeamsClusterIDHeader(t *testing.T) {
 	t.Setenv("HICLAW_CLUSTER_ID", "hiclaw-cluster")
 
 	stsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("X-HiClaw-Cluster-ID"); got != "agentteams-cluster" {
-			t.Fatalf("X-HiClaw-Cluster-ID = %q, want %q", got, "agentteams-cluster")
+		if got := r.Header.Get("X-AgentTeams-Cluster-ID"); got != "agentteams-cluster" {
+			t.Fatalf("X-AgentTeams-Cluster-ID = %q, want %q", got, "agentteams-cluster")
+		}
+		if got := r.Header.Get("X-HiClaw-Cluster-ID"); got != "" {
+			t.Fatalf("X-HiClaw-Cluster-ID = %q, want empty", got)
 		}
 		_, _ = w.Write([]byte(`{"access_key_id":"ak","access_key_secret":"sk","security_token":"st","expires_in_sec":60}`))
 	}))

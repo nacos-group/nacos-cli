@@ -104,6 +104,12 @@ func interactiveCompletionSpecs() map[string]completionSpec {
 		"skill-release": {
 			Flags: []string{"--help", "-h", "--version", "--update-latest"},
 		},
+		"skill-online": {
+			Flags: []string{"--help", "-h", "--version"},
+		},
+		"skill-offline": {
+			Flags: []string{"--help", "-h", "--version"},
+		},
 		"skill-scope": {
 			Flags: []string{"--help", "-h", "--scope"},
 		},
@@ -564,6 +570,18 @@ func (t *Terminal) handleCommand(input string) {
 		} else {
 			t.releaseSkill(args)
 		}
+	case "skill-online":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillOnlineHelp()
+		} else {
+			t.onlineSkill(args)
+		}
+	case "skill-offline":
+		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+			t.showSkillOfflineHelp()
+		} else {
+			t.offlineSkill(args)
+		}
 	case "skill-scope", "skill-visibility":
 		if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 			t.showSkillScopeHelp()
@@ -669,6 +687,8 @@ func (t *Terminal) showHelp() {
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all skills in directory", "skill-upload --all <folder>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-review", "Submit a draft for review", "skill-review <name> [--version v1]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-release", "Release an approved version", "skill-release <name> --version v1")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-online", "Bring a skill/version online", "skill-online <name> [--version v1]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-offline", "Take a skill/version offline", "skill-offline <name> [--version v1]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-scope", "Set skill visibility", "skill-scope <name> --scope PUBLIC")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-tags", "Set metadata tags", "skill-tags <name> --tags a,b")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-publish", "[DEPRECATED] upload + review", "skill-publish <path> (use skill-upload/review)")
@@ -1330,6 +1350,62 @@ func (t *Terminal) releaseSkill(args []string) {
 	fmt.Printf("Skill released successfully! %s@%s is now online.\n", skillName, version)
 }
 
+// onlineSkill brings a whole skill or a specific version online.
+func (t *Terminal) onlineSkill(args []string) {
+	t.changeSkillOnlineStatus(args, true)
+}
+
+// offlineSkill takes a whole skill or a specific version offline.
+func (t *Terminal) offlineSkill(args []string) {
+	t.changeSkillOnlineStatus(args, false)
+}
+
+func (t *Terminal) changeSkillOnlineStatus(args []string, online bool) {
+	action := "online"
+	if !online {
+		action = "offline"
+	}
+	if len(args) == 0 {
+		fmt.Printf("Usage: skill-%s <skillName> [--version <version>]\n", action)
+		return
+	}
+
+	skillName := args[0]
+	version := ""
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--version" && i+1 < len(args) {
+			i++
+			version = args[i]
+		} else if strings.HasPrefix(arg, "--version=") {
+			version = strings.TrimPrefix(arg, "--version=")
+		}
+	}
+
+	if version == "" {
+		fmt.Printf("Updating skill status: %s -> %s...\n", skillName, action)
+	} else {
+		fmt.Printf("Updating skill version status: %s@%s -> %s...\n", skillName, version, action)
+	}
+
+	var err error
+	if online {
+		err = t.skillService.OnlineSkill(skillName, version)
+	} else {
+		err = t.skillService.OfflineSkill(skillName, version)
+	}
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	if version == "" {
+		fmt.Printf("Skill updated successfully: %s is now %s.\n", skillName, action)
+		return
+	}
+	fmt.Printf("Skill version updated successfully: %s@%s is now %s.\n", skillName, version, action)
+}
+
 // updateSkillScope sets skill visibility scope.
 func (t *Terminal) updateSkillScope(args []string) {
 	if len(args) == 0 {
@@ -1718,6 +1794,14 @@ func (t *Terminal) showSkillReviewHelp() {
 
 func (t *Terminal) showSkillReleaseHelp() {
 	help.SkillRelease.FormatForTerminal()
+}
+
+func (t *Terminal) showSkillOnlineHelp() {
+	help.SkillOnline.FormatForTerminal()
+}
+
+func (t *Terminal) showSkillOfflineHelp() {
+	help.SkillOffline.FormatForTerminal()
 }
 
 func (t *Terminal) showSkillScopeHelp() {

@@ -557,6 +557,55 @@ func (s *SkillService) PublishSkill(skillName, version string, updateLatestLabel
 	return nil
 }
 
+// OnlineSkill enables the whole skill or a specific version when version is set.
+func (s *SkillService) OnlineSkill(skillName, version string) error {
+	return s.changeSkillOnlineStatus(skillName, version, true)
+}
+
+// OfflineSkill disables the whole skill or a specific version when version is set.
+func (s *SkillService) OfflineSkill(skillName, version string) error {
+	return s.changeSkillOnlineStatus(skillName, version, false)
+}
+
+func (s *SkillService) changeSkillOnlineStatus(skillName, version string, online bool) error {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(skillName) == "" {
+		return fmt.Errorf("skillName is required")
+	}
+
+	version = strings.TrimSpace(version)
+	params := url.Values{}
+	params.Set("namespaceId", s.client.Namespace)
+	params.Set("skillName", skillName)
+	if version == "" {
+		params.Set("scope", "skill")
+	} else {
+		params.Set("scope", "version")
+		params.Set("version", version)
+	}
+
+	action := "online"
+	if !online {
+		action = "offline"
+	}
+	apiURL := fmt.Sprintf("%s/nacos/v3/admin/ai/skills/%s?%s",
+		s.client.BaseURL(), action, params.Encode())
+	req, err := s.client.NewAuthedRequest("POST", apiURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s skill failed: %w", action, err)
+	}
+	defer resp.Body.Close()
+
+	return checkV3Response(resp, fmt.Sprintf("%s skill", action))
+}
+
 // SubmitSkill submits a draft skill version for review.
 func (s *SkillService) SubmitSkill(skillName, version string) error {
 	if err := s.client.EnsureTokenValid(); err != nil {

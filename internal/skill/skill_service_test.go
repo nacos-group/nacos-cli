@@ -289,6 +289,86 @@ func TestUpdateSkillBizTagsSendsParams(t *testing.T) {
 	}
 }
 
+func TestOnlineSkillSendsSkillScopeParams(t *testing.T) {
+	var onlineCalled bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/admin/ai/skills/online" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		onlineCalled = true
+		if r.Method != http.MethodPost {
+			t.Fatalf("online method = %s, want POST", r.Method)
+		}
+		if got := r.URL.Query().Get("namespaceId"); got != "test-ns" {
+			t.Fatalf("online namespaceId = %s, want test-ns", got)
+		}
+		if got := r.URL.Query().Get("skillName"); got != "demo-skill" {
+			t.Fatalf("online skillName = %s, want demo-skill", got)
+		}
+		if got := r.URL.Query().Get("scope"); got != "skill" {
+			t.Fatalf("online scope = %s, want skill", got)
+		}
+		if got := r.URL.Query().Get("version"); got != "" {
+			t.Fatalf("online version = %s, want empty", got)
+		}
+		_ = json.NewEncoder(w).Encode(V3Response{Code: 0, Message: "success"})
+	}))
+	defer server.Close()
+
+	nacosClient, err := newTestNacosClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewSkillService(nacosClient).OnlineSkill("demo-skill", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !onlineCalled {
+		t.Fatal("online was not called")
+	}
+}
+
+func TestOfflineSkillSendsVersionScopeParams(t *testing.T) {
+	var offlineCalled bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/nacos/v3/admin/ai/skills/offline" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		offlineCalled = true
+		if r.Method != http.MethodPost {
+			t.Fatalf("offline method = %s, want POST", r.Method)
+		}
+		if got := r.URL.Query().Get("namespaceId"); got != "test-ns" {
+			t.Fatalf("offline namespaceId = %s, want test-ns", got)
+		}
+		if got := r.URL.Query().Get("skillName"); got != "demo-skill" {
+			t.Fatalf("offline skillName = %s, want demo-skill", got)
+		}
+		if got := r.URL.Query().Get("scope"); got != "version" {
+			t.Fatalf("offline scope = %s, want version", got)
+		}
+		if got := r.URL.Query().Get("version"); got != "1.0.0" {
+			t.Fatalf("offline version = %s, want 1.0.0", got)
+		}
+		_ = json.NewEncoder(w).Encode(V3Response{Code: 0, Message: "success"})
+	}))
+	defer server.Close()
+
+	nacosClient, err := newTestNacosClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewSkillService(nacosClient).OfflineSkill("demo-skill", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if !offlineCalled {
+		t.Fatal("offline was not called")
+	}
+}
+
 func newTestNacosClient(serverURL string) (*client.NacosClient, error) {
 	return client.NewNacosClient(
 		strings.TrimPrefix(serverURL, "http://"),

@@ -136,6 +136,38 @@ var (
 		},
 	}
 
+	SkillOnline = CommandHelp{
+		Command:     "skill-online",
+		Description: "Bring a whole skill or one skill version online.",
+		Parameters: []string{
+			"skillName       Required. Skill name",
+			"--version       Optional. Version to bring online. If omitted, enables the whole skill",
+		},
+		Examples: []string{
+			"# Bring the whole skill online",
+			"skill-online my-skill",
+			"",
+			"# Bring one version online",
+			"skill-online my-skill --version 1.0.0",
+		},
+	}
+
+	SkillOffline = CommandHelp{
+		Command:     "skill-offline",
+		Description: "Take a whole skill or one skill version offline.",
+		Parameters: []string{
+			"skillName       Required. Skill name",
+			"--version       Optional. Version to take offline. If omitted, disables the whole skill",
+		},
+		Examples: []string{
+			"# Take the whole skill offline",
+			"skill-offline my-skill",
+			"",
+			"# Take one version offline",
+			"skill-offline my-skill --version 1.0.0",
+		},
+	}
+
 	SkillScope = CommandHelp{
 		Command:     "skill-scope",
 		Description: "Set the visibility scope of a skill.",

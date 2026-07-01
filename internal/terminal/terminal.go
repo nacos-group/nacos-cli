@@ -806,13 +806,6 @@ func displayNamespace(namespace string) string {
 	return namespace
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // namespace shows or switches namespace
 func (t *Terminal) namespace(args []string) {
 	if len(args) == 0 {

@@ -141,7 +141,7 @@ Examples:
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-			term := terminal.NewTerminal(nacosClient)
+			term := terminal.NewTerminalWithProfile(nacosClient, profileName)
 			if err := term.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
@@ -196,13 +196,13 @@ Examples:
 		fmt.Printf("%-15s %s\n", "auth-type:", cfg.AuthType)
 		switch cfg.AuthType {
 		case "aliyun":
-			fmt.Printf("%-15s %s\n", "access-key:", maskSensitiveValue(cfg.AccessKey))
+			fmt.Printf("%-15s %s\n", "access-key:", displayConfigValue(cfg.AccessKey))
 			fmt.Printf("%-15s %s\n", "secret-key:", maskSensitiveValue(cfg.SecretKey))
 		case "sts-hiclaw", "sts-agentteams":
 			controllerEnv, tokenFileEnv := stsAuthEnvNames(cfg.AuthType)
 			fmt.Printf("%-15s from %s and %s env vars\n", "credentials:", controllerEnv, tokenFileEnv)
 		default:
-			fmt.Printf("%-15s %s\n", "username:", maskSensitiveValue(cfg.Username))
+			fmt.Printf("%-15s %s\n", "username:", displayConfigValue(cfg.Username))
 			fmt.Printf("%-15s %s\n", "password:", maskSensitiveValue(cfg.Password))
 		}
 		if cfg.Namespace != "" {
@@ -392,6 +392,13 @@ Examples:
 		}
 		fmt.Printf("Updated profile %q\n", profileName)
 	},
+}
+
+func displayConfigValue(value string) string {
+	if value == "" {
+		return "(not set)"
+	}
+	return value
 }
 
 // maskSensitiveValue masks a sensitive config value for display.

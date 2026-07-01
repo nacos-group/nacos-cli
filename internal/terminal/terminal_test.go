@@ -1,9 +1,14 @@
 package terminal
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
+
+	"github.com/nacos-group/nacos-cli/internal/client"
 )
 
 func TestParseCommandArgs(t *testing.T) {
@@ -131,6 +136,80 @@ func TestParseCommandArgs(t *testing.T) {
 	}
 }
 
+func TestShowServerInfoIncludesProfile(t *testing.T) {
+	term := NewTerminalWithProfile(&client.NacosClient{
+		ServerAddr: "127.0.0.1:8848",
+		Namespace:  "test-ns",
+		AuthType:   client.AuthTypeNone,
+	}, "dev")
+
+	output := captureTerminalStdout(t, func() {
+		term.showServerInfo()
+	})
+	if !strings.Contains(output, "Profile:   dev") {
+		t.Fatalf("server info should include profile name:\n%s", output)
+	}
+	if !strings.Contains(output, "Server:    127.0.0.1:8848") {
+		t.Fatalf("server info should include server address:\n%s", output)
+	}
+}
+
+func TestShowServerInfoUsesUserForAliyunAuth(t *testing.T) {
+	term := NewTerminalWithProfile(&client.NacosClient{
+		ServerAddr: "127.0.0.1:8848",
+		Namespace:  "test-ns",
+		AuthType:   client.AuthTypeAliyun,
+		AccessKey:  "LTAI5t6DxxTJDK77fhAXCnMz",
+	}, "hangzhou")
+
+	output := captureTerminalStdout(t, func() {
+		term.showServerInfo()
+	})
+	if strings.Contains(output, "Username:") {
+		t.Fatalf("aliyun server info should not show username:\n%s", output)
+	}
+	if !strings.Contains(output, "User:      LTAI5t6DxxTJDK77fhAXCnMz (AccessKey)") {
+		t.Fatalf("aliyun server info should show access key user:\n%s", output)
+	}
+	if !strings.Contains(output, "Auth Type: aliyun") {
+		t.Fatalf("aliyun server info should show plain auth type:\n%s", output)
+	}
+	if strings.Contains(output, "accessKey:") {
+		t.Fatalf("auth type should not repeat access key details:\n%s", output)
+	}
+}
+
+func TestWelcomeUsesSameConnectionInfoAsServer(t *testing.T) {
+	term := NewTerminalWithProfile(&client.NacosClient{
+		ServerAddr: "127.0.0.1:8848",
+		Namespace:  "",
+		AuthType:   client.AuthTypeAliyun,
+		AccessKey:  "LTAI5t6DxxTJDK77fhAXCnMz",
+	}, "hangzhou")
+
+	welcomeOutput := captureTerminalStdout(t, func() {
+		term.printWelcome()
+	})
+	serverOutput := captureTerminalStdout(t, func() {
+		term.showServerInfo()
+	})
+
+	for _, want := range []string{
+		"Profile:   hangzhou",
+		"Server:    127.0.0.1:8848",
+		"User:      LTAI5t6DxxTJDK77fhAXCnMz (AccessKey)",
+		"Namespace: (public)",
+		"Auth Type: aliyun",
+	} {
+		if !strings.Contains(stripANSI(welcomeOutput), want) {
+			t.Fatalf("welcome output missing %q:\n%s", want, welcomeOutput)
+		}
+		if !strings.Contains(serverOutput, want) {
+			t.Fatalf("server output missing %q:\n%s", want, serverOutput)
+		}
+	}
+}
+
 func TestParseSkillUploadOverwrite(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -242,6 +321,30 @@ func TestParseCommandArgsEdgeCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func captureTerminalStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	origStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = origStdout
+	}()
+	fn()
+	_ = writer.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func stripANSI(s string) string {
+	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
 }
 
 func TestCompleterCompletesCommands(t *testing.T) {

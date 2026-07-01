@@ -369,6 +369,21 @@ func TestConfigSetValueAndGetValue(t *testing.T) {
 	}
 }
 
+func TestFormatCurrentValueOnlyMasksSecrets(t *testing.T) {
+	if got := formatCurrentValue("access-key", false); got != "access-key" {
+		t.Fatalf("access key display = %q, want access-key", got)
+	}
+	if got := formatCurrentValue("username", false); got != "username" {
+		t.Fatalf("username display = %q, want username", got)
+	}
+	if got := formatCurrentValue("secret", true); got != "******" {
+		t.Fatalf("secret display = %q, want ******", got)
+	}
+	if got := formatCurrentValue("", false); got != "" {
+		t.Fatalf("empty display = %q, want empty", got)
+	}
+}
+
 func TestNormalizeAuthTypeAcceptsStsAgentTeams(t *testing.T) {
 	authType, err := NormalizeAuthType("STS-AgentTeams")
 	if err != nil {

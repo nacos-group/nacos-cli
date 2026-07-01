@@ -163,6 +163,26 @@ func TestPersistentPreRunAuthTypeOverrideKeepsProfileConfig(t *testing.T) {
 	}
 }
 
+func TestCurrentTerminalProfileName(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(func() {
+		profileName = ""
+	})
+	if err := config.SetCurrentProfile("dev"); err != nil {
+		t.Fatalf("set current profile: %v", err)
+	}
+
+	if got := currentTerminalProfileName(); got != "dev" {
+		t.Fatalf("current terminal profile = %q, want dev", got)
+	}
+
+	profileName = "prod"
+	if got := currentTerminalProfileName(); got != "prod" {
+		t.Fatalf("explicit terminal profile = %q, want prod", got)
+	}
+}
+
 func TestSchemePriority_HttpHostOverridesProfileHttps(t *testing.T) {
 	resetRootConfigForTest(t)
 

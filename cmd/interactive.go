@@ -14,7 +14,7 @@ var interactiveCmd = &cobra.Command{
 		nacosClient := mustNewNacosClient()
 
 		// Create and start terminal
-		term := terminal.NewTerminal(nacosClient)
+		term := terminal.NewTerminalWithProfile(nacosClient, currentTerminalProfileName())
 		if err := term.Start(); err != nil {
 			checkError(err)
 		}

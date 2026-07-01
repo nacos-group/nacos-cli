@@ -258,7 +258,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default behavior: start interactive terminal
 		nacosClient := mustNewNacosClient()
-		term := terminal.NewTerminal(nacosClient)
+		term := terminal.NewTerminalWithProfile(nacosClient, currentTerminalProfileName())
 		if err := term.Start(); err != nil {
 			checkError(err)
 		}
@@ -361,6 +361,17 @@ func checkError(err error) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func currentTerminalProfileName() string {
+	if profileName != "" {
+		return config.NormalizeProfileName(profileName)
+	}
+	current, err := config.GetCurrentProfile()
+	if err != nil {
+		return ""
+	}
+	return current
 }
 
 // mustNewNacosClient creates a NacosClient and exits with a clear error message on failure (e.g. login failed).

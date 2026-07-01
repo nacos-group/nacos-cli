@@ -779,24 +779,13 @@ func LoadOrCreateConfig(profile string) (*Config, string, error) {
 	return cfg, configPath, nil
 }
 
-// PromptForUpdate prompts the user to update existing configuration fields
-// Shows current values (passwords masked) as defaults
+// PromptForUpdate prompts the user to update existing configuration fields.
+// Shows current values as defaults, masking only secrets.
 func (c *Config) PromptForUpdate() error {
 	reader := bufio.NewReader(os.Stdin)
 
-	// Helper to format current value display
-	formatCurrent := func(val string, isMasked bool) string {
-		if val == "" {
-			return ""
-		}
-		if isMasked {
-			return "******"
-		}
-		return val
-	}
-
 	// Host
-	currentHost := formatCurrent(c.Host, false)
+	currentHost := formatCurrentValue(c.Host, false)
 	if currentHost != "" {
 		fmt.Printf("Enter Nacos host [%s]: ", currentHost)
 	} else {
@@ -860,7 +849,7 @@ func (c *Config) PromptForUpdate() error {
 	// Credentials based on auth type
 	if c.AuthType == "aliyun" {
 		// AccessKey
-		currentAK := formatCurrent(c.AccessKey, true)
+		currentAK := formatCurrentValue(c.AccessKey, false)
 		if currentAK != "" {
 			fmt.Printf("Enter AccessKey [%s]: ", currentAK)
 		} else {
@@ -899,7 +888,7 @@ func (c *Config) PromptForUpdate() error {
 		}
 	} else if c.AuthType == "nacos" {
 		// Nacos auth - Username
-		currentUser := formatCurrent(c.Username, true)
+		currentUser := formatCurrentValue(c.Username, false)
 		if currentUser != "" {
 			fmt.Printf("Enter username [%s]: ", currentUser)
 		} else {
@@ -950,4 +939,14 @@ func (c *Config) PromptForUpdate() error {
 	}
 
 	return nil
+}
+
+func formatCurrentValue(val string, masked bool) string {
+	if val == "" {
+		return ""
+	}
+	if masked {
+		return "******"
+	}
+	return val
 }

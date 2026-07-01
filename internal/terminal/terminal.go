@@ -22,6 +22,7 @@ const defaultDescLimit = 200
 // Terminal represents an interactive terminal
 type Terminal struct {
 	client           *client.NacosClient
+	profileName      string
 	skillService     *skill.SkillService
 	agentSpecService *agentspec.AgentSpecService
 	rl               *readline.Instance
@@ -30,8 +31,14 @@ type Terminal struct {
 
 // NewTerminal creates a new interactive terminal
 func NewTerminal(nacosClient *client.NacosClient) *Terminal {
+	return NewTerminalWithProfile(nacosClient, "")
+}
+
+// NewTerminalWithProfile creates a new interactive terminal with profile context.
+func NewTerminalWithProfile(nacosClient *client.NacosClient, profileName string) *Terminal {
 	return &Terminal{
 		client:           nacosClient,
+		profileName:      profileName,
 		skillService:     skill.NewSkillService(nacosClient),
 		agentSpecService: agentspec.NewAgentSpecService(nacosClient),
 		running:          true,
@@ -406,27 +413,7 @@ func (t *Terminal) printWelcome() {
 	fmt.Println("\033[36m╔════════════════════════════════════════════════════════╗\033[0m")
 	fmt.Println("\033[36m║\033[0m                  \033[1mNacos CLI Terminal\033[0m                   \033[36m║\033[0m")
 	fmt.Println("\033[36m╚════════════════════════════════════════════════════════╝\033[0m")
-	fmt.Printf("\033[33mServer:\033[0m %s\n", t.client.ServerAddr)
-	if t.client.Namespace != "" {
-		fmt.Printf("\033[33mNamespace:\033[0m %s\n", t.client.Namespace)
-	}
-	// Show user info based on auth type
-	switch t.client.AuthType {
-	case client.AuthTypeNacos:
-		if t.client.Username != "" {
-			fmt.Printf("\033[33mUser:\033[0m %s (username/password)\n", t.client.Username)
-		}
-	case client.AuthTypeAliyun:
-		if t.client.AccessKey != "" {
-			fmt.Printf("\033[33mUser:\033[0m %s (AccessKey)\n", t.client.AccessKey)
-		}
-	case client.AuthTypeStsToken, client.AuthTypeStsAgentTeams:
-		if t.client.AccessKey != "" {
-			fmt.Printf("\033[33mUser:\033[0m %s (%s)\n", t.client.AccessKey, strings.ToUpper(t.client.AuthType))
-		}
-	case client.AuthTypeNone:
-		fmt.Printf("\033[33mAuth:\033[0m None (public access)\n")
-	}
+	t.printConnectionInfo(true)
 	fmt.Println()
 	fmt.Println("\033[90mType '\033[0mhelp\033[90m' for available commands\033[0m")
 	fmt.Println("\033[90mPress '\033[0mTab\033[90m' for auto-completion\033[0m")
@@ -744,36 +731,79 @@ func (t *Terminal) clear() {
 func (t *Terminal) showServerInfo() {
 	fmt.Println("Server Information:")
 	fmt.Println("─────────────────────────────────────────────────────────")
-	fmt.Printf("  Server:    %s\n", t.client.ServerAddr)
-	fmt.Printf("  Username:  %s\n", t.client.Username)
-	fmt.Printf("  Namespace: %s\n", t.client.Namespace)
-	fmt.Printf("  Auth Type: %s\n", t.getAuthTypeDisplay())
+	t.printConnectionInfo(false)
 	fmt.Println("─────────────────────────────────────────────────────────")
+}
+
+type terminalInfoLine struct {
+	label string
+	value string
+}
+
+func (t *Terminal) printConnectionInfo(color bool) {
+	for _, line := range t.connectionInfoLines() {
+		label := line.label + ":"
+		if color {
+			fmt.Printf("\033[33m%-10s\033[0m %s\n", label, line.value)
+		} else {
+			fmt.Printf("  %-10s %s\n", label, line.value)
+		}
+	}
+}
+
+func (t *Terminal) connectionInfoLines() []terminalInfoLine {
+	lines := make([]terminalInfoLine, 0, 5)
+	if t.profileName != "" {
+		lines = append(lines, terminalInfoLine{label: "Profile", value: t.profileName})
+	}
+	lines = append(lines, terminalInfoLine{label: "Server", value: t.client.ServerAddr})
+	if userDisplay := t.getUserDisplay(); userDisplay != "" {
+		lines = append(lines, terminalInfoLine{label: "User", value: userDisplay})
+	}
+	lines = append(lines, terminalInfoLine{label: "Namespace", value: displayNamespace(t.client.Namespace)})
+	lines = append(lines, terminalInfoLine{label: "Auth Type", value: t.getAuthTypeDisplay()})
+	return lines
+}
+
+func (t *Terminal) getUserDisplay() string {
+	switch t.client.AuthType {
+	case client.AuthTypeNacos:
+		if t.client.Username != "" {
+			return fmt.Sprintf("%s (username/password)", t.client.Username)
+		}
+	case client.AuthTypeAliyun:
+		if t.client.AccessKey != "" {
+			return fmt.Sprintf("%s (AccessKey)", t.client.AccessKey)
+		}
+	case client.AuthTypeStsToken, client.AuthTypeStsAgentTeams:
+		if t.client.AccessKey != "" {
+			return fmt.Sprintf("%s (%s)", t.client.AccessKey, strings.ToUpper(t.client.AuthType))
+		}
+	}
+	return ""
 }
 
 // getAuthTypeDisplay returns a human-readable auth type description
 func (t *Terminal) getAuthTypeDisplay() string {
 	switch t.client.AuthType {
 	case client.AuthTypeNacos:
-		if t.client.Username != "" {
-			return fmt.Sprintf("nacos (user: %s)", t.client.Username)
-		}
 		return "nacos"
 	case client.AuthTypeAliyun:
-		if t.client.AccessKey != "" {
-			return fmt.Sprintf("aliyun (accessKey: %s...)", t.client.AccessKey[:min(8, len(t.client.AccessKey))])
-		}
 		return "aliyun"
 	case client.AuthTypeStsToken, client.AuthTypeStsAgentTeams:
-		if t.client.AccessKey != "" {
-			return fmt.Sprintf("%s (accessKey: %s...)", t.client.AuthType, t.client.AccessKey[:min(8, len(t.client.AccessKey))])
-		}
 		return t.client.AuthType
 	case client.AuthTypeNone:
 		return "none (public access)"
 	default:
 		return t.client.AuthType
 	}
+}
+
+func displayNamespace(namespace string) string {
+	if namespace == "" {
+		return "(public)"
+	}
+	return namespace
 }
 
 func min(a, b int) int {
@@ -787,7 +817,7 @@ func min(a, b int) int {
 func (t *Terminal) namespace(args []string) {
 	if len(args) == 0 {
 		// Show current namespace
-		fmt.Printf("Current Namespace: %s\n", t.client.Namespace)
+		fmt.Printf("Current Namespace: %s\n", displayNamespace(t.client.Namespace))
 		return
 	}
 
@@ -795,7 +825,7 @@ func (t *Terminal) namespace(args []string) {
 	oldNs := t.client.Namespace
 	t.client.Namespace = args[0]
 
-	fmt.Printf("Switched namespace from '%s' to '%s'\n", oldNs, t.client.Namespace)
+	fmt.Printf("Switched namespace from '%s' to '%s'\n", displayNamespace(oldNs), displayNamespace(t.client.Namespace))
 }
 
 // listSkills lists all skills

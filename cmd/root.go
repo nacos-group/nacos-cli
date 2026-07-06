@@ -99,7 +99,7 @@ Examples:
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: Failed to load config file: %v\n", err)
 					}
-				} else if skillSyncCommand && profileName != "" {
+				} else if skillSyncCommand && profileName != "" && !isSkillSyncModeLocalCommand(cmd, args) {
 					fmt.Fprintf(os.Stderr, "Error: profile %q not found; create it with 'profile set' or pass --host/--port explicitly\n", profileName)
 					os.Exit(1)
 				}
@@ -274,6 +274,17 @@ func isSkillSyncCommand(cmd *cobra.Command) bool {
 		strings.HasPrefix(path, "nacos-cli skill-sync ") ||
 		path == "skill-sync" ||
 		strings.HasPrefix(path, "skill-sync ")
+}
+
+func isSkillSyncModeLocalCommand(cmd *cobra.Command, args []string) bool {
+	if cmd == nil || cmd.Name() != "mode" || len(args) == 0 {
+		return false
+	}
+	parent := cmd.Parent()
+	if parent == nil || parent.Name() != "skill-sync" {
+		return false
+	}
+	return strings.EqualFold(args[0], string(skill.SyncModeLocal))
 }
 
 func isCommandLineStsAuthType(value string) bool {

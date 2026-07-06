@@ -58,6 +58,18 @@ nacos-cli skill-sync add pdf --profile team --non-interactive
 
 如果本机没有可用 profile，`skill-sync` 会进入 local mode。local mode 不访问 Nacos，只负责把本地中心仓库和多个 Agent 目录统一起来。
 
+如果之前已经选择过 Nacos mode，后来只想使用本地同步，不要通过删除 profile 配置文件来切换模式。直接执行：
+
+```bash
+nacos-cli skill-sync mode local
+```
+
+这个命令会把当前 sync profile 的模式切回 local，并停止已有的 Nacos sync daemon。后续不带 `--profile` 的 `skill-sync add` / `start` 不会访问 Nacos。需要重新使用 Nacos 时，再切回：
+
+```bash
+nacos-cli skill-sync mode nacos --profile team
+```
+
 ## 最常见路径：从团队安装一个 skill
 
 假设团队已经在 Nacos 上发布了 `pdf`：
@@ -322,6 +334,7 @@ nacos-cli skill-sync status
 只想本地统一多个 Agent，不接 Nacos：
 
 ```bash
+nacos-cli skill-sync mode local
 nacos-cli skill-sync add pdf
 nacos-cli skill-sync start
 ```

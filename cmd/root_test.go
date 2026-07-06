@@ -361,6 +361,31 @@ func TestPersistentPreRunSkillSyncWithoutProfileUsesActiveProfile(t *testing.T) 
 	}
 }
 
+func TestPersistentPreRunAllowsModeLocalWithMissingExplicitProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Cleanup(func() {
+		skill.SetCurrentSyncProfile("")
+	})
+
+	profileName = "default"
+	rootCmd.PersistentPreRun(skillSyncTestCommand("mode"), []string{"local"})
+
+	configPath, err := config.GetProfileConfigPath("default")
+	if err != nil {
+		t.Fatalf("get profile path: %v", err)
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		t.Fatalf("config file %s should not be created by skill-sync mode local", configPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if got := skill.CurrentSyncProfile(); got != "default" {
+		t.Fatalf("current sync profile = %q, want default", got)
+	}
+}
+
 func skillSyncTestCommand(name string) *cobra.Command {
 	root := &cobra.Command{Use: "nacos-cli"}
 	sync := &cobra.Command{Use: "skill-sync"}

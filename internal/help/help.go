@@ -389,6 +389,7 @@ var (
 		Parameters: []string{
 			"add <skill|--all> Add and initial pull/link",
 			"remove <skill>  Remove from sync management (keeps agent copies)",
+			"mode <local|nacos> Set local or Nacos sync mode",
 			"status          Show sync state table",
 			"resolve <skill> Resolve conflicts (--use-local / --use-remote)",
 			"start           Start background sync daemon",

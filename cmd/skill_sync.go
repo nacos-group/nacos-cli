@@ -23,6 +23,7 @@ first; scripts can pass --switch-profile to make that switch explicit.
 Subcommands:
   add         Add a skill and link it to all agents
   remove      Remove a skill from sync management and keep local copies in agents
+  mode        Set local or Nacos sync mode
   start       Initial sync; start the daemon in Nacos mode
   stop        Stop the background daemon/watcher
   status      Show sync state and per-agent linkage
@@ -100,6 +101,29 @@ Bulk add:
 	},
 }
 
+// --- skill-sync mode ---
+
+var skillSyncModeCmd = &cobra.Command{
+	Use:   "mode [local|nacos]",
+	Short: "Set local or Nacos sync mode",
+	Long: `Set the persisted skill-sync mode for the current sync profile.
+
+Use local mode when you only want to sync local agent directories and avoid
+Nacos access. Use Nacos mode when the current or specified profile should pull
+from Nacos.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := ensureSkillSyncProfileReady(cmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runSkillSyncMode(args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
 // --- skill-sync remove ---
 
 var skillSyncRemoveCmd = &cobra.Command{
@@ -168,6 +192,7 @@ func init() {
 
 	skillSyncCmd.AddCommand(skillSyncAddCmd)
 	skillSyncCmd.AddCommand(skillSyncRemoveCmd)
+	skillSyncCmd.AddCommand(skillSyncModeCmd)
 	skillSyncCmd.AddCommand(skillSyncSetLabelCmd)
 	rootCmd.AddCommand(skillSyncCmd)
 }
@@ -252,6 +277,46 @@ func runSkillSyncAdd(skillNames []string, opts addOptions) error {
 	default:
 		return fmt.Errorf("unsupported sync mode: %s", res.Mode)
 	}
+}
+
+func runSkillSyncMode(rawMode string) error {
+	state, err := skill.LoadSyncState()
+	if err != nil {
+		return fmt.Errorf("failed to load sync state: %w", err)
+	}
+
+	var mode skill.SyncMode
+	switch strings.ToLower(strings.TrimSpace(rawMode)) {
+	case string(skill.SyncModeLocal):
+		mode = skill.SyncModeLocal
+	case string(skill.SyncModeNacos):
+		mode = skill.SyncModeNacos
+	default:
+		return fmt.Errorf("invalid mode %q (must be local or nacos)", rawMode)
+	}
+
+	if mode == skill.SyncModeLocal {
+		if err := stopSyncDaemonForProfileSwitch(os.Stdout); err != nil {
+			return err
+		}
+	}
+
+	profile := ""
+	if mode == skill.SyncModeNacos {
+		profile = profileName
+	}
+	if err := skill.SetMode(state, mode, profile); err != nil {
+		return err
+	}
+
+	if mode == skill.SyncModeLocal {
+		fmt.Println("Skill sync mode: local")
+		fmt.Println("Nacos access is disabled for skill-sync add/start unless you switch back to Nacos mode.")
+		return nil
+	}
+	fmt.Printf("Skill sync mode: nacos (profile: %s)\n", state.Profile)
+	fmt.Printf("Run 'nacos-cli skill-sync start --profile %s' to start the Nacos sync daemon.\n", state.Profile)
+	return nil
 }
 
 func runSkillSyncRemove(skillNames []string, opts removeOptions) error {

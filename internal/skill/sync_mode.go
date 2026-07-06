@@ -144,7 +144,7 @@ func SetMode(state *SyncState, mode SyncMode, profile string) error {
 		if profile == "" {
 			detected, ok := DetectUsableProfile()
 			if !ok {
-				return fmt.Errorf("no usable profile found; configure one via 'profile edit' first")
+				return fmt.Errorf("switching to Nacos mode requires a usable profile; pass --profile <profile> or create one with 'profile set <profile> ...'")
 			}
 			profile = detected
 		} else {

@@ -30,6 +30,16 @@ func TestSkillSyncRemoveHasAllFlag(t *testing.T) {
 	}
 }
 
+func TestSkillSyncExposesModeCommand(t *testing.T) {
+	mode := findSkillSyncCommand("mode")
+	if mode == nil {
+		t.Fatal("skill-sync should expose mode command")
+	}
+	if mode.Hidden {
+		t.Fatal("mode command should be visible")
+	}
+}
+
 func TestSkillSyncAddHasAllFlag(t *testing.T) {
 	if skillSyncAddCmd.Flags().Lookup("all") == nil {
 		t.Fatal("skill-sync add should expose --all")

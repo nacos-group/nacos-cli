@@ -424,9 +424,16 @@ nacos-cli skill-sync resolve skill-creator
 Local-only sync uses the same command surface without a Nacos profile:
 
 ```bash
+nacos-cli skill-sync mode local
 nacos-cli skill-sync add skill-creator
 nacos-cli skill-sync start
 nacos-cli skill-sync status
+```
+
+To switch back to Nacos mode later, set the mode with a usable profile:
+
+```bash
+nacos-cli skill-sync mode nacos --profile team
 ```
 
 Bulk operations are available for onboarding or cleanup:

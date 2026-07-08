@@ -370,6 +370,7 @@ var (
 			"dataId          Required. Configuration data ID",
 			"group           Required. Configuration group name",
 			"--file, -f      Path to config file (default: read from stdin)",
+			"--type, -t      Nacos config type metadata, for example yaml, json, text",
 		},
 		Examples: []string{
 			"# Publish from file",
@@ -379,7 +380,10 @@ var (
 			" echo 'key: value' | nacos-cli config-set app.yaml DEFAULT_GROUP",
 			"",
 			"# Publish JSON config",
-			"config-set skill.json skill_my-skill -f ./skill.json",
+			"config-set skill.json skill_my-skill -f ./skill.json --type json",
+			"",
+			"# Preserve config type metadata",
+			"config-set application.yaml DEFAULT_GROUP -f ./application.yaml --type yaml",
 		},
 	}
 

@@ -689,8 +689,18 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	return config.Content, nil
 }
 
-// PublishConfig publishes a configuration
+// PublishConfigOptions contains optional metadata used when publishing config.
+type PublishConfigOptions struct {
+	Type string
+}
+
+// PublishConfig publishes a configuration.
 func (c *NacosClient) PublishConfig(dataID, group, content string) error {
+	return c.PublishConfigWithOptions(dataID, group, content, PublishConfigOptions{})
+}
+
+// PublishConfigWithOptions publishes a configuration with optional metadata.
+func (c *NacosClient) PublishConfigWithOptions(dataID, group, content string, opts PublishConfigOptions) error {
 	if err := c.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -698,6 +708,9 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 		"dataId":    dataID,
 		"groupName": group,
 		"content":   content,
+	}
+	if opts.Type != "" {
+		params["type"] = opts.Type
 	}
 
 	if c.Namespace != "" {

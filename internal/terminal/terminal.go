@@ -154,7 +154,7 @@ func interactiveCompletionSpecs() map[string]completionSpec {
 			Flags: []string{"--help", "-h"},
 		},
 		"config-set": {
-			Flags:     []string{"--help", "-h", "--file", "-f"},
+			Flags:     []string{"--help", "-h", "--file", "-f", "--type", "-t"},
 			PathFlags: pathFlags("--file", "-f"),
 		},
 	}
@@ -699,7 +699,7 @@ func (t *Terminal) showHelp() {
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "config-list", "List all configurations", "config-list [options]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --data-id, --group, --page, --size", "")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "config-get", "Get configuration content", "config-get <data-id> <group>")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "config-set", "Publish config (-f file or type content)", "config-set <data-id> <group> [-f <file>]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "config-set", "Publish config (-f file or type content)", "config-set <data-id> <group> [-f <file>] [--type <type>]")
 	fmt.Println()
 
 	// System
@@ -1687,15 +1687,28 @@ func (t *Terminal) listConfigs(args []string) {
 
 // setConfig publishes a configuration (interactive mode: requires --file/-f)
 func (t *Terminal) setConfig(args []string) {
-	var dataID, group, filePath string
+	var dataID, group, filePath, configType string
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "-f" || arg == "--file" {
+		switch {
+		case arg == "-f" || arg == "--file":
 			if i+1 < len(args) {
 				i++
 				filePath = args[i]
 			}
+			continue
+		case strings.HasPrefix(arg, "--file="):
+			filePath = strings.TrimPrefix(arg, "--file=")
+			continue
+		case arg == "-t" || arg == "--type":
+			if i+1 < len(args) {
+				i++
+				configType = args[i]
+			}
+			continue
+		case strings.HasPrefix(arg, "--type="):
+			configType = strings.TrimPrefix(arg, "--type=")
 			continue
 		}
 		if dataID == "" {
@@ -1706,7 +1719,7 @@ func (t *Terminal) setConfig(args []string) {
 	}
 
 	if dataID == "" || group == "" {
-		fmt.Println("\033[31mUsage:\033[0m config-set <data-id> <group> [-f <file>]")
+		fmt.Println("\033[31mUsage:\033[0m config-set <data-id> <group> [-f <file>] [--type <type>]")
 		fmt.Println("\033[90mWithout -f: enter content in next lines, empty line to finish.\033[0m")
 		return
 	}
@@ -1752,7 +1765,7 @@ func (t *Terminal) setConfig(args []string) {
 	}
 
 	fmt.Printf("\033[90mPublishing config: \033[33m%s\033[90m (\033[33m%s\033[90m)...\033[0m\n", dataID, group)
-	if err := t.client.PublishConfig(dataID, group, content); err != nil {
+	if err := t.client.PublishConfigWithOptions(dataID, group, content, client.PublishConfigOptions{Type: configType}); err != nil {
 		fmt.Printf("\033[31mError:\033[0m %v\n", err)
 		return
 	}

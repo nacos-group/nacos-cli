@@ -3,6 +3,7 @@ package client
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -179,5 +180,55 @@ func TestNacosClientReusesHTTPClientWithTimeout(t *testing.T) {
 	}
 	if first.Timeout != DefaultHTTPTimeout {
 		t.Fatalf("timeout = %s, want %s", first.Timeout, DefaultHTTPTimeout)
+	}
+}
+
+func TestPublishConfigWithOptionsUsesConfigType(t *testing.T) {
+	tests := []struct {
+		name       string
+		configType string
+		want       string
+	}{
+		{name: "without config type", configType: "", want: ""},
+		{name: "with config type", configType: "yaml", want: "yaml"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/nacos/v3/admin/cs/config" {
+					t.Fatalf("path = %q, want /nacos/v3/admin/cs/config", r.URL.Path)
+				}
+				if r.Method != http.MethodPost {
+					t.Fatalf("method = %q, want POST", r.Method)
+				}
+				if err := r.ParseForm(); err != nil {
+					t.Fatalf("ParseForm() error = %v", err)
+				}
+				if got := r.PostForm.Get("type"); got != tt.want {
+					t.Fatalf("type form value = %q, want %q", got, tt.want)
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"code":0,"message":"success","data":true}`))
+			}))
+			defer server.Close()
+
+			c, err := NewNacosClient(
+				strings.TrimPrefix(server.URL, "http://"),
+				"public",
+				AuthTypeNone,
+				"", "", "", "", "", "", "",
+				"http",
+			)
+			if err != nil {
+				t.Fatalf("NewNacosClient() error = %v", err)
+			}
+
+			opts := PublishConfigOptions{Type: tt.configType}
+			if err := c.PublishConfigWithOptions("application.yaml", "DEFAULT_GROUP", "key: value", opts); err != nil {
+				t.Fatalf("PublishConfigWithOptions() error = %v", err)
+			}
+		})
 	}
 }

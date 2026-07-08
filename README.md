@@ -501,6 +501,16 @@ nacos-cli config-get myconfig DEFAULT_GROUP -s 127.0.0.1:8848 -u nacos -p nacos
 nacos> config-get myconfig DEFAULT_GROUP
 ```
 
+#### Set Configuration
+
+```bash
+# Publish from file
+nacos-cli config-set myconfig DEFAULT_GROUP -f ./application.yaml
+
+# Preserve config type metadata, such as yaml
+nacos-cli config-set myconfig DEFAULT_GROUP -f ./application.yaml --type yaml
+```
+
 ### Terminal Commands
 
 When in interactive terminal mode:

@@ -76,6 +76,13 @@ func TestParseCommandArgs(t *testing.T) {
 			description:  "Config set with short file flag",
 		},
 		{
+			name:         "config-set with type flag",
+			input:        "config-set data-id group -f /path/to/file.yaml --type yaml",
+			expectedCmd:  "config-set",
+			expectedArgs: []string{"data-id", "group", "-f", "/path/to/file.yaml", "--type", "yaml"},
+			description:  "Config set with explicit config type flag",
+		},
+		{
 			name:         "command with home directory path",
 			input:        "skill-get my-skill -o ~/skills",
 			expectedCmd:  "skill-get",

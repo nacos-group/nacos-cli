@@ -181,3 +181,31 @@ func TestNacosClientReusesHTTPClientWithTimeout(t *testing.T) {
 		t.Fatalf("timeout = %s, want %s", first.Timeout, DefaultHTTPTimeout)
 	}
 }
+
+func TestNewNacosClientWithTokenSetsAuthorizationHeader(t *testing.T) {
+	c, err := NewNacosClient(
+		"127.0.0.1:8848",
+		"public",
+		AuthTypeNone,
+		"", "", "", "", "", "", "",
+		"http",
+		WithToken("test-token"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AuthType != AuthTypeToken {
+		t.Fatalf("AuthType = %q, want %q", c.AuthType, AuthTypeToken)
+	}
+
+	req, err := c.NewAuthedRequest(http.MethodGet, c.BaseURL(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer test-token" {
+		t.Fatalf("Authorization header = %q, want %q", got, "Bearer test-token")
+	}
+	if got := c.httpClient.Header.Get("Authorization"); got != "Bearer test-token" {
+		t.Fatalf("resty Authorization header = %q, want %q", got, "Bearer test-token")
+	}
+}

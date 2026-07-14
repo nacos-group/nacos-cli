@@ -163,6 +163,24 @@ func TestPersistentPreRunAuthTypeOverrideKeepsProfileConfig(t *testing.T) {
 	}
 }
 
+func TestMustNewNacosClientUsesToken(t *testing.T) {
+	resetRootConfigForTest(t)
+	if rootCmd.PersistentFlags().Lookup("token") == nil {
+		t.Fatal("--token persistent flag is not registered")
+	}
+	serverAddr = "127.0.0.1:8848"
+	token = "test-token"
+
+	c := mustNewNacosClient()
+	req, err := c.NewAuthedRequest("GET", c.BaseURL(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer test-token" {
+		t.Fatalf("Authorization header = %q, want %q", got, "Bearer test-token")
+	}
+}
+
 func TestCurrentTerminalProfileName(t *testing.T) {
 	resetRootConfigForTest(t)
 	t.Setenv("HOME", t.TempDir())
@@ -409,6 +427,7 @@ func resetRootConfigForTest(t *testing.T) {
 	originalAccessKey := accessKey
 	originalSecretKey := secretKey
 	originalSecurityToken := securityToken
+	originalToken := token
 	originalStsURL := stsURL
 	originalStsAuthToken := stsAuthToken
 	originalConfigFile := configFile
@@ -426,6 +445,7 @@ func resetRootConfigForTest(t *testing.T) {
 	accessKey = ""
 	secretKey = ""
 	securityToken = ""
+	token = ""
 	stsURL = ""
 	stsAuthToken = ""
 	configFile = ""
@@ -444,6 +464,7 @@ func resetRootConfigForTest(t *testing.T) {
 		accessKey = originalAccessKey
 		secretKey = originalSecretKey
 		securityToken = originalSecurityToken
+		token = originalToken
 		stsURL = originalStsURL
 		stsAuthToken = originalStsAuthToken
 		configFile = originalConfigFile

@@ -19,6 +19,7 @@ import (
 
 const (
 	AuthTypeNone          = "none"           // No authentication (public registry)
+	AuthTypeToken         = "token"          // Bearer token authentication
 	AuthTypeNacos         = "nacos"          // Username/password authentication
 	AuthTypeAliyun        = "aliyun"         // AccessKey/SecretKey authentication
 	AuthTypeStsToken      = "sts-hiclaw"     // STS temporary credential via Hiclaw controller
@@ -65,6 +66,17 @@ type NacosClient struct {
 
 func IsStsAuthType(authType string) bool {
 	return authType == AuthTypeStsToken || authType == AuthTypeStsAgentTeams
+}
+
+// WithToken configures standard Bearer token authentication.
+func WithToken(token string) func(*NacosClient) {
+	return func(c *NacosClient) {
+		if token == "" {
+			return
+		}
+		c.AuthType = AuthTypeToken
+		c.AccessToken = token
+	}
 }
 
 // Config represents a Nacos configuration
@@ -183,6 +195,9 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 
 	for _, opt := range opts {
 		opt(c)
+	}
+	if c.AuthType == AuthTypeToken {
+		c.httpClient.SetHeader("Authorization", "Bearer "+c.AccessToken)
 	}
 
 	switch c.AuthType {

@@ -25,6 +25,7 @@ var (
 	accessKey     string
 	secretKey     string
 	securityToken string
+	token         string
 	stsURL        string
 	stsAuthToken  string
 	configFile    string
@@ -58,7 +59,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || isCommandLineStsAuthType(authType) || scheme != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || token != "" || isCommandLineStsAuthType(authType) || scheme != ""
 		envHost := strings.TrimSpace(os.Getenv("NACOS_HOST"))
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
@@ -361,6 +362,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/STS auth)")
 	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/STS auth)")
 	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (STS auth)")
+	rootCmd.PersistentFlags().StringVar(&token, "token", "", "Bearer token")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose/debug output")
 
 	// Mark legacy server flag as deprecated but still functional
@@ -387,9 +389,14 @@ func currentTerminalProfileName() string {
 
 // mustNewNacosClient creates a NacosClient and exits with a clear error message on failure (e.g. login failed).
 func mustNewNacosClient() *client.NacosClient {
-	c, err := client.NewNacosClient(serverAddr, namespace, authType, username, password, accessKey, secretKey, securityToken, stsURL, stsAuthToken, scheme, func(c *client.NacosClient) {
-		c.Verbose = verbose
-	})
+	c, err := client.NewNacosClient(
+		serverAddr, namespace, authType, username, password,
+		accessKey, secretKey, securityToken, stsURL, stsAuthToken, scheme,
+		client.WithToken(token),
+		func(c *client.NacosClient) {
+			c.Verbose = verbose
+		},
+	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

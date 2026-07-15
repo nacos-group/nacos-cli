@@ -416,6 +416,139 @@ var (
 		},
 	}
 
+	PromptList = CommandHelp{
+		Command:     "prompt-list",
+		Description: "List all prompts with governance info (latest/editing/reviewing/onlineCnt/labels/updateTime).",
+		Parameters: []string{
+			"--name string   Filter by prompt key (exact match)",
+			"--page int      Page number (default: 1)",
+			"--size int      Page size (default: 20)",
+			"--output string Output format: pretty | json (default: pretty)",
+		},
+		Examples: []string{
+			"# List all prompts (human-readable)",
+			"prompt-list",
+			"",
+			"# Search by prompt key",
+			"prompt-list --name \"my-prompt\"",
+			"",
+			"# With pagination",
+			"prompt-list --page 2 --size 10",
+			"",
+			"# Machine-readable JSON",
+			"prompt-list --output json",
+		},
+	}
+
+	PromptDescribe = CommandHelp{
+		Command:     "prompt-describe",
+		Description: "Show detailed info of a prompt, including governance metadata and the full version list with per-version status.",
+		Parameters: []string{
+			"promptKey       Required. Prompt key to describe",
+			"--output string Output format: pretty | json (default: pretty)",
+		},
+		Examples: []string{
+			"# Show prompt detail in human-readable form",
+			"prompt-describe my-prompt",
+			"",
+			"# Machine-readable JSON",
+			"prompt-describe my-prompt --output json",
+		},
+	}
+
+	PromptGet = CommandHelp{
+		Command:     "prompt-get",
+		Description: "Get a prompt template from Nacos and save it locally or print to stdout.",
+		Parameters: []string{
+			"promptKey       Required. Prompt key to get",
+			"-o, --output    Output file path (default: print to stdout)",
+			"--version       Specific version to get",
+			"--label         Route label to resolve version (e.g. latest, stable)",
+		},
+		Examples: []string{
+			"# Print the latest prompt template to stdout",
+			"prompt-get my-prompt",
+			"",
+			"# Save to file",
+			"prompt-get my-prompt -o ./my-prompt.md",
+			"",
+			"# Get a specific version",
+			"prompt-get my-prompt --version 1.0.0",
+			"",
+			"# Get via label",
+			"prompt-get my-prompt --label stable",
+		},
+	}
+
+	PromptDraft = CommandHelp{
+		Command:     "prompt-draft",
+		Description: "Create or update a prompt draft. Automatically detects whether to create a new draft or update an existing one.",
+		Parameters: []string{
+			"promptKey       Required. Prompt key",
+			"-f, --file      Path to template file (default: read from stdin)",
+			"--variables     Variables JSON (e.g. '[{\"name\":\"topic\",\"defaultValue\":\"AI\"}]')",
+			"--message       Commit message for this draft",
+			"--description   Prompt description (only used when creating new prompt)",
+			"--biz-tags      Business tags (only used when creating new prompt)",
+		},
+		Examples: []string{
+			"# Create/update a prompt draft from file",
+			"prompt-draft my-prompt -f ./template.md",
+			"",
+			"# Create/update from stdin",
+			"echo 'Hello {{name}}' | prompt-draft my-prompt",
+			"",
+			"# With variables and commit message",
+			"prompt-draft my-prompt -f ./tpl.md --variables '[{\"name\":\"topic\"}]' --message \"add topic var\"",
+			"",
+			"Note:",
+			"  - If no editing draft exists, a new one is created",
+			"  - If an editing draft already exists, it is updated",
+			"  - After draft, use prompt-review to submit for review",
+		},
+	}
+
+	PromptReview = CommandHelp{
+		Command:     "prompt-review",
+		Description: "Submit a prompt draft for review (moves editing -> reviewing).",
+		Parameters: []string{
+			"promptKey       Required. Prompt key to submit for review",
+			"--version       Optional. Specific draft version to submit",
+		},
+		Examples: []string{
+			"# Submit the current draft for review",
+			"prompt-review my-prompt",
+			"",
+			"# Submit a specific version",
+			"prompt-review my-prompt --version 0.0.1",
+			"",
+			"Note:",
+			"  - If --version is omitted, the server submits the current editingVersion",
+			"  - After review passes, use prompt-release to publish it online",
+		},
+	}
+
+	PromptRelease = CommandHelp{
+		Command:     "prompt-release",
+		Description: "Release (publish) an approved prompt version to make it online.",
+		Parameters: []string{
+			"promptKey            Required. Prompt key to release",
+			"--version            Required. Approved (reviewing) version to release",
+			"--update-latest      Whether to update the 'latest' label (default: true)",
+		},
+		Examples: []string{
+			"# Release an approved version and mark it as latest",
+			"prompt-release my-prompt --version 1.0.0",
+			"",
+			"# Release without updating the latest label",
+			"prompt-release my-prompt --version 1.0.0 --update-latest=false",
+			"",
+			"Note:",
+			"  - The target version must be in 'reviewing' state (approved by pipeline)",
+			"  - Flow: prompt-draft -> prompt-review -> prompt-release",
+		},
+	}
+
 	AgentSpecList = CommandHelp{
 		Command:     "agentspec-list",
 		Description: "List all agent specs with governance info (latest/editing/reviewing/onlineCnt/enable/scope/bizTags/updateTime).",

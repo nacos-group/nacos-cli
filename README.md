@@ -8,6 +8,7 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 - 💻 Interactive terminal mode with auto-completion
 - 🎯 Skill management - full lifecycle: upload → review → release, plus get/list/describe/sync
 - 🤖 AgentSpec management - full lifecycle: upload → review → release, plus get/list/describe
+- 💬 Prompt management - full lifecycle: draft → review → release, plus get/list/describe
 - 📝 Configuration management - list, get and set configurations
 - 🔄 Profile-aware skill synchronization across local agents and Nacos
 - 🌐 Namespace support for multi-environment management
@@ -472,6 +473,112 @@ Common status values:
 See `docs/skill-sync-user-guide.md` for the full quickstart, conflict handling,
 auto-upload behavior, and troubleshooting flow.
 
+### Prompt Management
+
+Prompts follow a similar lifecycle to skills but use text templates instead of ZIP files:
+`draft` (editing) → `review` (reviewing → reviewed) → `release` (online).
+
+#### List Prompts
+
+```bash
+# CLI mode (pretty output by default)
+nacos-cli prompt-list -s 127.0.0.1:8848 -u nacos -p nacos
+
+# Fuzzy search by name
+nacos-cli prompt-list --name my-prompt --page 1 --size 20
+
+# Machine-readable output for scripts
+nacos-cli prompt-list --output json
+
+# Terminal mode
+nacos> prompt-list
+nacos> prompt-list --name my-prompt --output json
+```
+
+#### Describe Prompt
+
+```bash
+nacos-cli prompt-describe my-prompt
+nacos-cli prompt-describe my-prompt --output json
+
+# Terminal mode
+nacos> prompt-describe my-prompt
+```
+
+#### Get/Download Prompt
+
+```bash
+# Print latest prompt template to stdout
+nacos-cli prompt-get my-prompt
+
+# Save to file
+nacos-cli prompt-get my-prompt -o ./my-prompt.md
+
+# Get a specific version
+nacos-cli prompt-get my-prompt --version 1.0.0
+
+# Get via label
+nacos-cli prompt-get my-prompt --label stable
+
+# Terminal mode
+nacos> prompt-get my-prompt
+nacos> prompt-get my-prompt --version 1.0.0
+```
+
+#### Draft Prompt (create or update)
+
+```bash
+# Create/update a prompt draft from file
+nacos-cli prompt-draft my-prompt -f ./template.md
+
+# Create/update from stdin
+echo 'Hello {{name}}' | nacos-cli prompt-draft my-prompt
+
+# With variables and commit message
+nacos-cli prompt-draft my-prompt -f ./tpl.md --variables '[{"name":"topic"}]' --message "add topic var"
+
+# With description and biz-tags (used only on first creation)
+nacos-cli prompt-draft my-prompt -f ./tpl.md --description "greeting prompt" --biz-tags "retail,finance"
+
+# Specify target version for the new draft
+nacos-cli prompt-draft my-prompt -f ./tpl.md --target-version 1.0.0
+
+# Fork from an existing published version (server auto-increments version)
+nacos-cli prompt-draft my-prompt -f ./tpl.md --based-on-version 1.0.0
+
+# Fork and set explicit target version
+nacos-cli prompt-draft my-prompt -f ./tpl.md --based-on-version 1.0.0 --target-version 2.0.0
+
+# Terminal mode
+nacos> prompt-draft my-prompt -f ./template.md
+```
+
+#### Review Prompt
+
+```bash
+# Submit the current editing draft for review
+nacos-cli prompt-review my-prompt
+
+# Submit a specific version
+nacos-cli prompt-review my-prompt --version 0.0.1
+
+# Terminal mode
+nacos> prompt-review my-prompt
+```
+
+#### Release Prompt
+
+```bash
+# Release an approved version (marks it as latest)
+nacos-cli prompt-release my-prompt --version 1.0.0
+
+# Release without updating latest label
+nacos-cli prompt-release my-prompt --version 1.0.0 --update-latest=false
+
+# Terminal mode
+nacos> prompt-release my-prompt --version 1.0.0
+```
+
 ### Configuration Management
 
 #### List Configurations
@@ -648,6 +755,12 @@ nacos-cli/
 │   ├── review_agentspec.go    # agentspec-review
 │   ├── release_agentspec.go   # agentspec-release
 │   ├── publish_agentspec.go   # agentspec-publish (deprecated wrapper)
+│   ├── list_prompt.go         # prompt-list
+│   ├── describe_prompt.go     # prompt-describe
+│   ├── get_prompt.go          # prompt-get
+│   ├── draft_prompt.go        # prompt-draft
+│   ├── review_prompt.go       # prompt-review
+│   ├── release_prompt.go      # prompt-release
 │   ├── list_config.go         # config-list
 │   ├── get_config.go          # config-get
 │   ├── set_config.go          # config-set
@@ -657,6 +770,7 @@ nacos-cli/
 │   ├── client/                # Nacos client
 │   ├── skill/                 # Skill service
 │   ├── agentspec/             # AgentSpec service
+│   ├── prompt/                # Prompt service
 │   ├── sync/                  # Sync service
 │   ├── listener/              # Config listener
 │   ├── terminal/              # Interactive terminal implementation
@@ -711,6 +825,13 @@ MIT License
 
 ### Next Release
 
+- Added prompt management commands: `prompt-list`, `prompt-describe`, `prompt-get`,
+  `prompt-draft`, `prompt-review`, `prompt-release` — full lifecycle support for
+  Nacos AI prompt templates (draft → review → release)
+- Prompt data models aligned with actual server API responses (bizTags as array,
+  nullable description, gmtModified timestamp, versionDetails structure)
+- `prompt-list --name` uses fuzzy search for convenience
+- `prompt-draft` auto-detects whether to create or update based on editing state
 - Fixed `skill-upload` and `agentspec-upload` creating ZIP archives with an
   extra directory prefix, causing server-side extraction failures
   ([#46](https://github.com/nacos-group/nacos-cli/issues/46))

@@ -563,7 +563,7 @@ namespace: ""
 ```
 
 Sensitive fields (`username`, `password`, `accessKey`, `secretKey`, and
-`securityToken`) are encrypted with AES-256-GCM before being saved by the CLI.
+`securityToken`, and `token`) are encrypted with AES-256-GCM before being saved by the CLI.
 The local encryption key is stored at `~/.nacos-cli/key` with `0600`
 permissions. Existing plaintext config files remain readable for backward
 compatibility; the next profile load or `profile edit` rewrites sensitive fields
@@ -583,6 +583,7 @@ nacos-cli profile get auth-type
 
 # Non-interactively create or update profile values
 nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=none
+nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=token token=<token>
 nacos-cli profile set dev auth-type=nacos username=nacos password=nacos
 nacos-cli profile set dev server=127.0.0.1:8848 namespace=public
 

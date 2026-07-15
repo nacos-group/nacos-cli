@@ -59,7 +59,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || token != "" || isCommandLineStsAuthType(authType) || scheme != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || isCommandLineStsAuthType(authType) || scheme != ""
 		envHost := strings.TrimSpace(os.Getenv("NACOS_HOST"))
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
@@ -199,7 +199,7 @@ Examples:
 			password = fileConfig.Password
 		}
 
-		// AccessKey / SecretKey / SecurityToken: command line > config file
+		// AccessKey / SecretKey / SecurityToken / Token: command line > config file
 		if accessKey == "" && fileConfig != nil {
 			accessKey = fileConfig.AccessKey
 		}
@@ -208,6 +208,9 @@ Examples:
 		}
 		if securityToken == "" && fileConfig != nil {
 			securityToken = fileConfig.SecurityToken
+		}
+		if token == "" && fileConfig != nil {
+			token = fileConfig.Token
 		}
 
 		// Set default server address only when neither --host nor --port is provided.
@@ -356,7 +359,7 @@ func init() {
 	// Global flags - legacy style (for backward compatibility)
 	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "Nacos server address (e.g., market.hiclaw.io:80)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace ID")
-	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: nacos | aliyun | sts-hiclaw | sts-agentteams")
+	rootCmd.PersistentFlags().StringVar(&authType, "auth-type", "", "Auth type: token | nacos | aliyun | sts-hiclaw | sts-agentteams")
 	rootCmd.PersistentFlags().StringVarP(&username, "username", "u", "", "Username (nacos auth)")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "Password (nacos auth)")
 	rootCmd.PersistentFlags().StringVar(&accessKey, "access-key", "", "AccessKey (aliyun/STS auth)")

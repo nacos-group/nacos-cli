@@ -27,6 +27,7 @@ var (
 		"accesskey":     true,
 		"secretkey":     true,
 		"securitytoken": true,
+		"token":         true,
 		"namespace":     true,
 	}
 )
@@ -136,6 +137,7 @@ Examples:
 				stsURLVal,
 				stsAuthTokenVal,
 				cfg.GetScheme(),
+				client.WithToken(cfg.Token),
 			)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -195,6 +197,8 @@ Examples:
 		fmt.Printf("%-15s %d\n", "port:", cfg.Port)
 		fmt.Printf("%-15s %s\n", "auth-type:", cfg.AuthType)
 		switch cfg.AuthType {
+		case "token":
+			fmt.Printf("%-15s %s\n", "token:", maskSensitiveValue(cfg.Token))
 		case "aliyun":
 			fmt.Printf("%-15s %s\n", "access-key:", displayConfigValue(cfg.AccessKey))
 			fmt.Printf("%-15s %s\n", "secret-key:", maskSensitiveValue(cfg.SecretKey))
@@ -351,6 +355,7 @@ before being saved.
 
 Examples:
   nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=none
+  nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=token token=<token>
   nacos-cli profile set dev auth-type=nacos username=nacos password=nacos
   nacos-cli profile set dev server=127.0.0.1:8848 namespace=public`,
 	Args: cobra.MinimumNArgs(1),
@@ -560,6 +565,7 @@ func printProfileValues(cfg *config.Config) {
 		"access-key",
 		"secret-key",
 		"security-token",
+		"token",
 		"namespace",
 	} {
 		value, sensitive, err := cfg.GetValue(key)

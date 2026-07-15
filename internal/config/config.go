@@ -25,12 +25,13 @@ type Config struct {
 	Host          string `yaml:"host"`
 	Port          int    `yaml:"port"`
 	Scheme        string `yaml:"scheme"`   // http | https (default: http)
-	AuthType      string `yaml:"authType"` // nacos | aliyun | sts-hiclaw | sts-agentteams
+	AuthType      string `yaml:"authType"` // token | nacos | aliyun | sts-hiclaw | sts-agentteams
 	Username      string `yaml:"username"`
 	Password      string `yaml:"password"`
 	AccessKey     string `yaml:"accessKey"`     // Aliyun AK (AuthType=aliyun)
 	SecretKey     string `yaml:"secretKey"`     // Aliyun SK (AuthType=aliyun)
 	SecurityToken string `yaml:"securityToken"` // STS SecurityToken (legacy)
+	Token         string `yaml:"token"`         // Bearer token (AuthType=token)
 	Namespace     string `yaml:"namespace"`
 }
 
@@ -304,6 +305,9 @@ func (c *Config) IsComplete() bool {
 	if authType == "aliyun" {
 		return c.AccessKey != "" && c.SecretKey != ""
 	}
+	if authType == "token" {
+		return c.Token != ""
+	}
 
 	if isStsAuthType(authType) {
 		// STS credentials are fetched dynamically from controller env vars.
@@ -335,6 +339,10 @@ func (c *Config) GetMissingFields() []string {
 		}
 		if c.SecretKey == "" {
 			missing = append(missing, "secretKey")
+		}
+	} else if authType == "token" {
+		if c.Token == "" {
+			missing = append(missing, "token")
 		}
 	} else if isStsAuthType(authType) {
 		// STS credentials are fetched dynamically; no config fields required
@@ -424,6 +432,8 @@ func (c *Config) SetValue(key, value string) error {
 		c.SecretKey = value
 	case "securitytoken":
 		c.SecurityToken = value
+	case "token":
+		c.Token = value
 	case "namespace":
 		c.Namespace = value
 	default:
@@ -456,6 +466,8 @@ func (c *Config) GetValue(key string) (string, bool, error) {
 		return c.SecretKey, true, nil
 	case "securitytoken":
 		return c.SecurityToken, true, nil
+	case "token":
+		return c.Token, true, nil
 	case "namespace":
 		return c.Namespace, false, nil
 	default:
@@ -499,10 +511,10 @@ func NormalizeAuthType(authType string) (string, error) {
 		return "sts-hiclaw", nil
 	}
 	switch authType {
-	case "none", "nacos", "aliyun", "sts-hiclaw", "sts-agentteams":
+	case "none", "token", "nacos", "aliyun", "sts-hiclaw", "sts-agentteams":
 		return authType, nil
 	default:
-		return "", fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", authType)
+		return "", fmt.Errorf("invalid auth type: %s (must be 'none', 'token', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", authType)
 	}
 }
 
@@ -535,6 +547,9 @@ func (c *Config) EncryptSensitiveFields() error {
 	if c.SecurityToken, err = encryptValue(c.SecurityToken); err != nil {
 		return fmt.Errorf("securityToken: %w", err)
 	}
+	if c.Token, err = encryptValue(c.Token); err != nil {
+		return fmt.Errorf("token: %w", err)
+	}
 	return nil
 }
 
@@ -556,6 +571,9 @@ func (c *Config) DecryptSensitiveFields() error {
 	if c.SecurityToken, err = decryptValue(c.SecurityToken); err != nil {
 		return fmt.Errorf("securityToken: %w", err)
 	}
+	if c.Token, err = decryptValue(c.Token); err != nil {
+		return fmt.Errorf("token: %w", err)
+	}
 	return nil
 }
 
@@ -566,6 +584,7 @@ func (c *Config) hasPlaintextSensitiveFields() bool {
 		c.AccessKey,
 		c.SecretKey,
 		c.SecurityToken,
+		c.Token,
 	} {
 		if value != "" && !isEncryptedValue(value) {
 			return true
@@ -626,7 +645,7 @@ func (c *Config) PromptForMissingFields() error {
 
 	// Prompt for auth type if not set
 	if c.AuthType == "" {
-		fmt.Print("Enter auth type (none/nacos/aliyun/sts-hiclaw/sts-agentteams) [none]: ")
+		fmt.Print("Enter auth type (none/token/nacos/aliyun/sts-hiclaw/sts-agentteams) [none]: ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("failed to read auth type: %w", err)
@@ -634,18 +653,26 @@ func (c *Config) PromptForMissingFields() error {
 		input = strings.TrimSpace(strings.ToLower(input))
 		if input == "" {
 			c.AuthType = "none"
-		} else if input == "none" || input == "nacos" || input == "aliyun" || input == "sts-hiclaw" || input == "sts-agentteams" || input == "sts-url" {
+		} else if input == "none" || input == "token" || input == "nacos" || input == "aliyun" || input == "sts-hiclaw" || input == "sts-agentteams" || input == "sts-url" {
 			if input == "sts-url" {
 				input = "sts-hiclaw"
 			}
 			c.AuthType = input
 		} else {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", input)
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'token', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", input)
 		}
 	}
 
 	// Prompt for credentials based on auth type
-	if c.AuthType == "aliyun" {
+	if c.AuthType == "token" {
+		if c.Token == "" {
+			fmt.Print("Enter token: ")
+			c.Token = readPassword(reader)
+			if c.Token == "" {
+				return fmt.Errorf("token is required for token auth")
+			}
+		}
+	} else if c.AuthType == "aliyun" {
 		if c.AccessKey == "" {
 			fmt.Print("Enter AccessKey: ")
 			input, err := reader.ReadString('\n')
@@ -828,15 +855,15 @@ func (c *Config) PromptForUpdate() error {
 	if currentAuthType == "" {
 		currentAuthType = "none"
 	}
-	fmt.Printf("Enter auth type (none/nacos/aliyun/sts-hiclaw/sts-agentteams) [%s]: ", currentAuthType)
+	fmt.Printf("Enter auth type (none/token/nacos/aliyun/sts-hiclaw/sts-agentteams) [%s]: ", currentAuthType)
 	input, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read auth type: %w", err)
 	}
 	input = strings.TrimSpace(strings.ToLower(input))
 	if input != "" {
-		if input != "none" && input != "nacos" && input != "aliyun" && input != "sts-hiclaw" && input != "sts-agentteams" && input != "sts-url" {
-			return fmt.Errorf("invalid auth type: %s (must be 'none', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", input)
+		if input != "none" && input != "token" && input != "nacos" && input != "aliyun" && input != "sts-hiclaw" && input != "sts-agentteams" && input != "sts-url" {
+			return fmt.Errorf("invalid auth type: %s (must be 'none', 'token', 'nacos', 'aliyun', 'sts-hiclaw' or 'sts-agentteams')", input)
 		}
 		if input == "sts-url" {
 			input = "sts-hiclaw"
@@ -847,7 +874,20 @@ func (c *Config) PromptForUpdate() error {
 	}
 
 	// Credentials based on auth type
-	if c.AuthType == "aliyun" {
+	if c.AuthType == "token" {
+		if c.Token != "" {
+			fmt.Print("Enter token [******] (press Enter to keep current): ")
+		} else {
+			fmt.Print("Enter token: ")
+		}
+		newToken := readPassword(reader)
+		if newToken != "" {
+			c.Token = newToken
+		}
+		if c.Token == "" {
+			return fmt.Errorf("token is required for token auth")
+		}
+	} else if c.AuthType == "aliyun" {
 		// AccessKey
 		currentAK := formatCurrentValue(c.AccessKey, false)
 		if currentAK != "" {

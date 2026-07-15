@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nacos-group/nacos-cli/internal/client"
 	"github.com/nacos-group/nacos-cli/internal/config"
 	"github.com/nacos-group/nacos-cli/internal/skill"
 	"github.com/spf13/cobra"
@@ -178,6 +179,63 @@ func TestMustNewNacosClientUsesToken(t *testing.T) {
 	}
 	if got := req.Header.Get("Authorization"); got != "Bearer test-token" {
 		t.Fatalf("Authorization header = %q, want %q", got, "Bearer test-token")
+	}
+}
+
+func TestPersistentPreRunLoadsProfileToken(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+
+	configPath, err := config.GetProfileConfigPath("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&config.Config{
+		Host:     "127.0.0.1",
+		Port:     8848,
+		AuthType: "token",
+		Token:    "profile-token",
+	}).SaveConfig(configPath); err != nil {
+		t.Fatal(err)
+	}
+	profileName = "dev"
+
+	rootCmd.PersistentPreRun(&cobra.Command{Use: "skill-list"}, nil)
+
+	if token != "profile-token" {
+		t.Fatalf("token = %q, want profile-token", token)
+	}
+	if got := mustNewNacosClient().AuthType; got != client.AuthTypeToken {
+		t.Fatalf("AuthType = %q, want %q", got, client.AuthTypeToken)
+	}
+}
+
+func TestPersistentPreRunCommandLineTokenOverridesProfile(t *testing.T) {
+	resetRootConfigForTest(t)
+	t.Setenv("HOME", t.TempDir())
+
+	configPath, err := config.GetProfileConfigPath("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&config.Config{
+		Host:     "10.0.0.2",
+		Port:     8848,
+		AuthType: "token",
+		Token:    "profile-token",
+	}).SaveConfig(configPath); err != nil {
+		t.Fatal(err)
+	}
+	profileName = "dev"
+	token = "command-line-token"
+
+	rootCmd.PersistentPreRun(&cobra.Command{Use: "skill-list"}, nil)
+
+	if serverAddr != "10.0.0.2:8848" {
+		t.Fatalf("serverAddr = %q, want profile server", serverAddr)
+	}
+	if token != "command-line-token" {
+		t.Fatalf("token = %q, want command-line-token", token)
 	}
 }
 

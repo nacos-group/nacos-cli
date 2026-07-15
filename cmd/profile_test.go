@@ -16,3 +16,9 @@ func TestProfileDisplayValues(t *testing.T) {
 		t.Fatalf("empty masked value = %q, want (not set)", got)
 	}
 }
+
+func TestProfileRecognizesTokenField(t *testing.T) {
+	if !isProfileFieldKey("token") {
+		t.Fatal("token should be recognized as a profile field")
+	}
+}

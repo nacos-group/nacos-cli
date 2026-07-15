@@ -25,6 +25,7 @@ func TestSaveConfigEncryptsSensitiveFieldsAndLoadDecrypts(t *testing.T) {
 		AccessKey:     "access-key-value-for-test",
 		SecretKey:     "secret-key-value-for-test",
 		SecurityToken: "security-token-value-for-test",
+		Token:         "bearer-token-value-for-test",
 		Namespace:     "test-ns",
 	}
 
@@ -50,6 +51,7 @@ func TestSaveConfigEncryptsSensitiveFieldsAndLoadDecrypts(t *testing.T) {
 		"accessKey":     raw.AccessKey,
 		"secretKey":     raw.SecretKey,
 		"securityToken": raw.SecurityToken,
+		"token":         raw.Token,
 	} {
 		if !isEncryptedValue(value) {
 			t.Fatalf("%s was not encrypted: %q", name, value)
@@ -76,7 +78,8 @@ func TestSaveConfigEncryptsSensitiveFieldsAndLoadDecrypts(t *testing.T) {
 		loaded.Password != cfg.Password ||
 		loaded.AccessKey != cfg.AccessKey ||
 		loaded.SecretKey != cfg.SecretKey ||
-		loaded.SecurityToken != cfg.SecurityToken {
+		loaded.SecurityToken != cfg.SecurityToken ||
+		loaded.Token != cfg.Token {
 		t.Fatalf("loaded credentials mismatch: got %+v want %+v", loaded, cfg)
 	}
 }
@@ -322,6 +325,7 @@ func TestConfigSetValueAndGetValue(t *testing.T) {
 		{"access-key", "ak"},
 		{"secret-key", "sk"},
 		{"security-token", "token"},
+		{"token", "bearer-token"},
 		{"namespace", "test-ns"},
 	} {
 		if err := cfg.SetValue(pair.key, pair.value); err != nil {
@@ -358,6 +362,14 @@ func TestConfigSetValueAndGetValue(t *testing.T) {
 	}
 	if value != "sk" || !sensitive {
 		t.Fatalf("secret-key value=%q sensitive=%v", value, sensitive)
+	}
+
+	value, sensitive, err = cfg.GetValue("token")
+	if err != nil {
+		t.Fatalf("get token: %v", err)
+	}
+	if value != "bearer-token" || !sensitive {
+		t.Fatalf("token value=%q sensitive=%v", value, sensitive)
 	}
 
 	value, sensitive, err = cfg.GetValue("server")
@@ -399,5 +411,20 @@ func TestNormalizeAuthTypeAcceptsStsAgentTeams(t *testing.T) {
 	}
 	if missing := cfg.GetMissingFields(); len(missing) != 0 {
 		t.Fatalf("missing fields = %v, want none", missing)
+	}
+}
+
+func TestTokenAuthRequiresToken(t *testing.T) {
+	cfg := Config{Host: "127.0.0.1", AuthType: "token"}
+	if cfg.IsComplete() {
+		t.Fatal("token auth config without token should be incomplete")
+	}
+	if missing := cfg.GetMissingFields(); !reflect.DeepEqual(missing, []string{"token"}) {
+		t.Fatalf("missing fields = %v, want [token]", missing)
+	}
+
+	cfg.Token = "bearer-token"
+	if !cfg.IsComplete() {
+		t.Fatal("token auth config with token should be complete")
 	}
 }

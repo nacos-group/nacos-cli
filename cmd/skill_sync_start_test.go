@@ -836,6 +836,40 @@ func TestSkillSyncStartDoesNotHaveAllFlag(t *testing.T) {
 	}
 }
 
+func TestBuildSyncDaemonForegroundArgsUsesCurrentSyncProfile(t *testing.T) {
+	withTempHome(t)
+
+	origProfileName := profileName
+	origConfigFile := configFile
+	origNamespace := namespace
+	origScheme := scheme
+	origVerbose := verbose
+	origInterval := syncStartInterval
+	t.Cleanup(func() {
+		profileName = origProfileName
+		configFile = origConfigFile
+		namespace = origNamespace
+		scheme = origScheme
+		verbose = origVerbose
+		syncStartInterval = origInterval
+		skill.SetCurrentSyncProfile("")
+	})
+
+	profileName = ""
+	configFile = ""
+	namespace = ""
+	scheme = ""
+	verbose = false
+	syncStartInterval = "30s"
+	skill.SetCurrentSyncProfile("team")
+
+	args := buildSyncDaemonForegroundArgs()
+	got := strings.Join(args, " ")
+	if !strings.Contains(got, "--profile team") {
+		t.Fatalf("daemon args = %q, want current sync profile", got)
+	}
+}
+
 func TestDecideStartConflictsNonInteractiveSkips(t *testing.T) {
 	decision := decideStartConflicts([]startConflict{
 		{Name: "demo", Reason: "local differs from Nacos"},

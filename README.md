@@ -521,6 +521,7 @@ nacos> quit           # Exit terminal
 | --host | | market.hiclaw.io when `--host` and `--port` are both omitted; otherwise 127.0.0.1 when only `--port` is provided | Nacos server host |
 | --port | | 80 when `--host` and `--port` are both omitted; otherwise 8848 when omitted after `--host` | Nacos server port |
 | --scheme | | http | Protocol scheme: `http` or `https` |
+| --token-transport | | bearer | Access-token transport: `bearer`, `authorization`, `header`, or `query` |
 | --server | -s | market.hiclaw.io:80 when no host/port is provided | Nacos server address (deprecated, use --host and --port) |
 | --username | -u | nacos | Nacos username |
 | --password | -p | nacos | Nacos password |
@@ -559,6 +560,7 @@ scheme: http          # http or https (default: http)
 authType: nacos
 username: ENC[v1:aes-256-gcm:...]
 password: ENC[v1:aes-256-gcm:...]
+tokenTransport: bearer # bearer | authorization | header | query
 namespace: ""
 ```
 
@@ -585,6 +587,7 @@ nacos-cli profile get auth-type
 nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=none
 nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=token token=<token>
 nacos-cli profile set dev auth-type=nacos username=nacos password=nacos
+nacos-cli profile set dev token-transport=query
 nacos-cli profile set dev server=127.0.0.1:8848 namespace=public
 
 # Delete a profile
@@ -615,7 +618,14 @@ export NACOS_HOST=127.0.0.1
 export NACOS_PORT=8848
 export NACOS_NAMESPACE=xxx
 export NACOS_SCHEME=https    # http or https (default: http)
+export NACOS_TOKEN_TRANSPORT=query # bearer | authorization | header | query
 ```
+
+`bearer` sends `Authorization: Bearer <token>` and remains the default.
+`authorization` sends the raw token as `Authorization: <token>`, `header`
+sends `accessToken: <token>`, and `query` sends `?accessToken=<token>`.
+When a Nacos v3 configuration route returns 404 or 410, configuration list,
+get, and publish operations automatically fall back to the compatible v1 API.
 
 For example:
 - `nacos-cli --config ./local.conf --host 10.0.0.1` - Uses `10.0.0.1` from command line, other values from config file

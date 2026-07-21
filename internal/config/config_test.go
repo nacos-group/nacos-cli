@@ -243,6 +243,26 @@ func TestConfigWithSchemeField(t *testing.T) {
 	}
 }
 
+func TestConfigTokenTransportField(t *testing.T) {
+	cfg := &Config{}
+	if err := cfg.SetValue("token-transport", "QUERY"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TokenTransport != "query" {
+		t.Fatalf("TokenTransport = %q, want query", cfg.TokenTransport)
+	}
+	value, sensitive, err := cfg.GetValue("token-transport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "query" || sensitive {
+		t.Fatalf("GetValue() = (%q, %v), want (query, false)", value, sensitive)
+	}
+	if err := cfg.SetValue("token-transport", "cookie"); err == nil {
+		t.Fatal("SetValue accepted invalid token transport")
+	}
+}
+
 func TestCurrentProfileSettings(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

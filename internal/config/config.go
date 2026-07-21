@@ -22,17 +22,18 @@ const (
 
 // Config represents the Nacos CLI configuration
 type Config struct {
-	Host          string `yaml:"host"`
-	Port          int    `yaml:"port"`
-	Scheme        string `yaml:"scheme"`   // http | https (default: http)
-	AuthType      string `yaml:"authType"` // token | nacos | aliyun | sts-hiclaw | sts-agentteams
-	Username      string `yaml:"username"`
-	Password      string `yaml:"password"`
-	AccessKey     string `yaml:"accessKey"`     // Aliyun AK (AuthType=aliyun)
-	SecretKey     string `yaml:"secretKey"`     // Aliyun SK (AuthType=aliyun)
-	SecurityToken string `yaml:"securityToken"` // STS SecurityToken (legacy)
-	Token         string `yaml:"token"`         // Bearer token (AuthType=token)
-	Namespace     string `yaml:"namespace"`
+	Host           string `yaml:"host"`
+	Port           int    `yaml:"port"`
+	Scheme         string `yaml:"scheme"`   // http | https (default: http)
+	AuthType       string `yaml:"authType"` // token | nacos | aliyun | sts-hiclaw | sts-agentteams
+	Username       string `yaml:"username"`
+	Password       string `yaml:"password"`
+	AccessKey      string `yaml:"accessKey"`      // Aliyun AK (AuthType=aliyun)
+	SecretKey      string `yaml:"secretKey"`      // Aliyun SK (AuthType=aliyun)
+	SecurityToken  string `yaml:"securityToken"`  // STS SecurityToken (legacy)
+	Token          string `yaml:"token"`          // Bearer token (AuthType=token)
+	TokenTransport string `yaml:"tokenTransport"` // bearer | authorization | header | query
+	Namespace      string `yaml:"namespace"`
 }
 
 // Settings stores CLI-wide profile state.
@@ -434,6 +435,12 @@ func (c *Config) SetValue(key, value string) error {
 		c.SecurityToken = value
 	case "token":
 		c.Token = value
+	case "tokentransport":
+		transport, err := normalizeTokenTransport(value)
+		if err != nil {
+			return err
+		}
+		c.TokenTransport = transport
 	case "namespace":
 		c.Namespace = value
 	default:
@@ -468,10 +475,25 @@ func (c *Config) GetValue(key string) (string, bool, error) {
 		return c.SecurityToken, true, nil
 	case "token":
 		return c.Token, true, nil
+	case "tokentransport":
+		return c.TokenTransport, false, nil
 	case "namespace":
 		return c.Namespace, false, nil
 	default:
 		return "", false, fmt.Errorf("unknown profile key %q", key)
+	}
+}
+
+func normalizeTokenTransport(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "", nil
+	}
+	switch value {
+	case "bearer", "authorization", "header", "query":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid token transport %q (must be bearer, authorization, header, or query)", value)
 	}
 }
 
@@ -958,6 +980,24 @@ func (c *Config) PromptForUpdate() error {
 		}
 		if c.Password == "" {
 			return fmt.Errorf("password is required")
+		}
+
+		currentTransport := c.TokenTransport
+		if currentTransport == "" {
+			currentTransport = "bearer"
+		}
+		fmt.Printf("Enter token transport [bearer|authorization|header|query] [%s]: ", currentTransport)
+		input, err = reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read token transport: %w", err)
+		}
+		input = strings.TrimSpace(input)
+		if input != "" {
+			transport, transportErr := normalizeTokenTransport(input)
+			if transportErr != nil {
+				return transportErr
+			}
+			c.TokenTransport = transport
 		}
 	}
 	// authType == "none": skip credential prompts

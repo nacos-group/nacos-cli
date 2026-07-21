@@ -26,6 +26,13 @@ const (
 	AuthTypeStsAgentTeams = "sts-agentteams" // STS temporary credential via AgentTeams controller
 )
 
+const (
+	TokenTransportBearer        = "bearer"
+	TokenTransportAuthorization = "authorization"
+	TokenTransportHeader        = "header"
+	TokenTransportQuery         = "query"
+)
+
 const DefaultHTTPTimeout = 30 * time.Second
 
 // defaultStsCredTTL is used when the STS endpoint omits both expires_in_sec
@@ -56,6 +63,7 @@ type NacosClient struct {
 	StsURL           string // STS credential endpoint URL
 	StsAuthToken     string // Bearer token for controller authentication
 	AccessToken      string
+	TokenTransport   string // bearer (default), authorization (raw), header (accessToken), or query
 	TokenExpireAt    time.Time
 	stsCredExpireAt  time.Time // expiration time of STS credentials
 	authLoginVersion string    // "v3" or "v1", determined by first successful login
@@ -76,6 +84,32 @@ func WithToken(token string) func(*NacosClient) {
 		}
 		c.AuthType = AuthTypeToken
 		c.AccessToken = token
+	}
+}
+
+// WithTokenTransport configures how Nacos access tokens are sent after login.
+// The default is the standard Authorization: Bearer header. Compatibility
+// servers may instead require a raw Authorization token, accessToken header,
+// or accessToken query parameter.
+func WithTokenTransport(transport string) func(*NacosClient) {
+	return func(c *NacosClient) {
+		if transport != "" {
+			c.TokenTransport = strings.ToLower(strings.TrimSpace(transport))
+		}
+	}
+}
+
+// NormalizeTokenTransport validates and normalizes the access-token transport.
+func NormalizeTokenTransport(transport string) (string, error) {
+	transport = strings.ToLower(strings.TrimSpace(transport))
+	if transport == "" {
+		return TokenTransportBearer, nil
+	}
+	switch transport {
+	case TokenTransportBearer, TokenTransportAuthorization, TokenTransportHeader, TokenTransportQuery:
+		return transport, nil
+	default:
+		return "", fmt.Errorf("invalid token transport %q (must be bearer, authorization, header, or query)", transport)
 	}
 }
 
@@ -178,26 +212,34 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 	}
 
 	c := &NacosClient{
-		ServerAddr:    serverAddr,
-		Scheme:        scheme,
-		Namespace:     namespace,
-		AuthType:      authType,
-		Username:      username,
-		Password:      password,
-		AccessKey:     accessKey,
-		SecretKey:     secretKey,
-		SecurityToken: securityToken,
-		StsURL:        stsURL,
-		StsAuthToken:  stsAuthToken,
-		httpClient:    resty.New().SetTimeout(DefaultHTTPTimeout),
-		rawHTTPClient: &http.Client{Timeout: DefaultHTTPTimeout},
+		ServerAddr:     serverAddr,
+		Scheme:         scheme,
+		Namespace:      namespace,
+		AuthType:       authType,
+		Username:       username,
+		Password:       password,
+		AccessKey:      accessKey,
+		SecretKey:      secretKey,
+		SecurityToken:  securityToken,
+		StsURL:         stsURL,
+		StsAuthToken:   stsAuthToken,
+		TokenTransport: TokenTransportBearer,
+		httpClient:     resty.New().SetTimeout(DefaultHTTPTimeout),
+		rawHTTPClient:  &http.Client{Timeout: DefaultHTTPTimeout},
 	}
 
 	for _, opt := range opts {
 		opt(c)
 	}
+	normalizedTransport, err := NormalizeTokenTransport(c.TokenTransport)
+	if err != nil {
+		return nil, err
+	}
+	c.TokenTransport = normalizedTransport
 	if c.AuthType == AuthTypeToken {
-		c.httpClient.SetHeader("Authorization", "Bearer "+c.AccessToken)
+		if c.TokenTransport == TokenTransportBearer {
+			c.httpClient.SetHeader("Authorization", "Bearer "+c.AccessToken)
+		}
 	}
 
 	switch c.AuthType {
@@ -213,6 +255,40 @@ func NewNacosClient(serverAddr, namespace, authType, username, password, accessK
 		}
 	}
 	return c, nil
+}
+
+func (c *NacosClient) applyAccessTokenResty(req *resty.Request) {
+	if c.AccessToken == "" {
+		return
+	}
+	switch c.TokenTransport {
+	case TokenTransportAuthorization:
+		req.SetHeader("Authorization", c.AccessToken)
+	case TokenTransportHeader:
+		req.SetHeader("accessToken", c.AccessToken)
+	case TokenTransportQuery:
+		req.SetQueryParam("accessToken", c.AccessToken)
+	default:
+		req.SetHeader("Authorization", "Bearer "+c.AccessToken)
+	}
+}
+
+func (c *NacosClient) applyAccessTokenHTTP(req *http.Request) {
+	if c.AccessToken == "" {
+		return
+	}
+	switch c.TokenTransport {
+	case TokenTransportAuthorization:
+		req.Header.Set("Authorization", c.AccessToken)
+	case TokenTransportHeader:
+		req.Header.Set("accessToken", c.AccessToken)
+	case TokenTransportQuery:
+		query := req.URL.Query()
+		query.Set("accessToken", c.AccessToken)
+		req.URL.RawQuery = query.Encode()
+	default:
+		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	}
 }
 
 // HTTPClient returns the shared standard HTTP client used by APIs that need
@@ -488,10 +564,7 @@ func (c *NacosClient) NewAuthedRequest(method, url string, body io.Reader) (*htt
 	if err != nil {
 		return nil, err
 	}
-	// Bearer token (nacos auth)
-	if c.AccessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.AccessToken)
-	}
+	c.applyAccessTokenHTTP(req)
 	// SPAS headers (aliyun/STS auth): tenant=namespaceId, group=DEFAULT_GROUP
 	if (c.AuthType == AuthTypeAliyun || IsStsAuthType(c.AuthType)) && c.AccessKey != "" && c.SecretKey != "" {
 		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -568,8 +641,8 @@ func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo,
 	v3URL := fmt.Sprintf("%s/nacos/v3/admin/cs/config/list", c.BaseURL())
 	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
 		req := c.httpClient.R().SetQueryString(params.Encode())
-		if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-			req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		if c.AuthType == AuthTypeNacos {
+			c.applyAccessTokenResty(req)
 		}
 		c.setSpasHeaders(req, ns, groupName)
 		return req.Get(v3URL)
@@ -580,6 +653,9 @@ func (c *NacosClient) ListConfigs(dataID, groupName, namespaceID string, pageNo,
 	}
 
 	if resp.StatusCode() != 200 {
+		if resp.StatusCode() == http.StatusNotFound || resp.StatusCode() == http.StatusGone {
+			return c.listConfigsV1(dataID, groupName, ns, pageNo, pageSize)
+		}
 		return nil, ParseHTTPError(resp.StatusCode(), resp.Body(), "list configs")
 	}
 
@@ -665,8 +741,8 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	apiURL := fmt.Sprintf("%s/nacos/v3/client/cs/config", c.BaseURL())
 	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
 		req := c.httpClient.R().SetQueryString(params.Encode())
-		if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-			req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		if c.AuthType == AuthTypeNacos {
+			c.applyAccessTokenResty(req)
 		}
 		c.setSpasHeaders(req, c.Namespace, group)
 		return req.Get(apiURL)
@@ -677,6 +753,9 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	}
 
 	if resp.StatusCode() != 200 {
+		if resp.StatusCode() == http.StatusNotFound || resp.StatusCode() == http.StatusGone {
+			return c.getConfigV1(dataID, group)
+		}
 		return "", ParseHTTPError(resp.StatusCode(), resp.Body(), "get config")
 	}
 
@@ -704,6 +783,32 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	return config.Content, nil
 }
 
+func (c *NacosClient) getConfigV1(dataID, group string) (string, error) {
+	params := url.Values{}
+	params.Set("dataId", dataID)
+	params.Set("group", group)
+	if c.Namespace != "" && c.Namespace != "public" {
+		params.Set("tenant", c.Namespace)
+	}
+	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+		params.Set("accessToken", c.AccessToken)
+	}
+
+	apiURL := fmt.Sprintf("%s/nacos/v1/cs/configs", c.BaseURL())
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetQueryString(params.Encode())
+		c.setSpasHeaders(req, c.Namespace, group)
+		return req.Get(apiURL)
+	})
+	if err != nil {
+		return "", fmt.Errorf("get config (v1) failed: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return "", ParseHTTPError(resp.StatusCode(), resp.Body(), "get config (v1)")
+	}
+	return string(resp.Body()), nil
+}
+
 // PublishConfig publishes a configuration
 func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	if err := c.EnsureTokenValid(); err != nil {
@@ -722,8 +827,8 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	apiURL := fmt.Sprintf("%s/nacos/v3/admin/cs/config", c.BaseURL())
 	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
 		req := c.httpClient.R().SetFormData(params)
-		if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
-			req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		if c.AuthType == AuthTypeNacos {
+			c.applyAccessTokenResty(req)
 		}
 		c.setSpasHeaders(req, c.Namespace, group)
 		return req.Post(apiURL)
@@ -734,6 +839,9 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	}
 
 	if resp.StatusCode() != 200 {
+		if resp.StatusCode() == http.StatusNotFound || resp.StatusCode() == http.StatusGone {
+			return c.publishConfigV1(dataID, group, content)
+		}
 		return ParseHTTPError(resp.StatusCode(), resp.Body(), "publish config")
 	}
 
@@ -755,5 +863,36 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 		return fmt.Errorf("publish config failed: server returned false")
 	}
 
+	return nil
+}
+
+func (c *NacosClient) publishConfigV1(dataID, group, content string) error {
+	params := map[string]string{
+		"dataId":  dataID,
+		"group":   group,
+		"content": content,
+	}
+	if c.Namespace != "" && c.Namespace != "public" {
+		params["tenant"] = c.Namespace
+	}
+	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+		params["accessToken"] = c.AccessToken
+	}
+
+	apiURL := fmt.Sprintf("%s/nacos/v1/cs/configs", c.BaseURL())
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetFormData(params)
+		c.setSpasHeaders(req, c.Namespace, group)
+		return req.Post(apiURL)
+	})
+	if err != nil {
+		return fmt.Errorf("publish config (v1) failed: %w", err)
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return ParseHTTPError(resp.StatusCode(), resp.Body(), "publish config (v1)")
+	}
+	if strings.TrimSpace(string(resp.Body())) != "true" {
+		return fmt.Errorf("publish config (v1) failed: server returned %s", string(resp.Body()))
+	}
 	return nil
 }

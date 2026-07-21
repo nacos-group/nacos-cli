@@ -486,6 +486,7 @@ func resetRootConfigForTest(t *testing.T) {
 	originalSecretKey := secretKey
 	originalSecurityToken := securityToken
 	originalToken := token
+	originalTokenTransport := tokenTransport
 	originalStsURL := stsURL
 	originalStsAuthToken := stsAuthToken
 	originalConfigFile := configFile
@@ -504,6 +505,7 @@ func resetRootConfigForTest(t *testing.T) {
 	secretKey = ""
 	securityToken = ""
 	token = ""
+	tokenTransport = ""
 	stsURL = ""
 	stsAuthToken = ""
 	configFile = ""
@@ -523,6 +525,7 @@ func resetRootConfigForTest(t *testing.T) {
 		secretKey = originalSecretKey
 		securityToken = originalSecurityToken
 		token = originalToken
+		tokenTransport = originalTokenTransport
 		stsURL = originalStsURL
 		stsAuthToken = originalStsAuthToken
 		configFile = originalConfigFile

@@ -18,17 +18,18 @@ var (
 	profileDeleteForce    bool
 	profileSetIncomplete  bool
 	profileKnownFieldKeys = map[string]bool{
-		"host":          true,
-		"port":          true,
-		"server":        true,
-		"authtype":      true,
-		"username":      true,
-		"password":      true,
-		"accesskey":     true,
-		"secretkey":     true,
-		"securitytoken": true,
-		"token":         true,
-		"namespace":     true,
+		"host":           true,
+		"port":           true,
+		"server":         true,
+		"authtype":       true,
+		"username":       true,
+		"password":       true,
+		"accesskey":      true,
+		"secretkey":      true,
+		"securitytoken":  true,
+		"token":          true,
+		"tokentransport": true,
+		"namespace":      true,
 	}
 )
 
@@ -138,6 +139,7 @@ Examples:
 				stsAuthTokenVal,
 				cfg.GetScheme(),
 				client.WithToken(cfg.Token),
+				client.WithTokenTransport(cfg.TokenTransport),
 			)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -196,6 +198,7 @@ Examples:
 		fmt.Printf("%-15s %s\n", "host:", cfg.Host)
 		fmt.Printf("%-15s %d\n", "port:", cfg.Port)
 		fmt.Printf("%-15s %s\n", "auth-type:", cfg.AuthType)
+		fmt.Printf("%-15s %s\n", "token-transport:", defaultTokenTransport(cfg.TokenTransport))
 		switch cfg.AuthType {
 		case "token":
 			fmt.Printf("%-15s %s\n", "token:", maskSensitiveValue(cfg.Token))
@@ -566,6 +569,7 @@ func printProfileValues(cfg *config.Config) {
 		"secret-key",
 		"security-token",
 		"token",
+		"token-transport",
 		"namespace",
 	} {
 		value, sensitive, err := cfg.GetValue(key)
@@ -577,6 +581,13 @@ func printProfileValues(cfg *config.Config) {
 		}
 		fmt.Printf("%s=%s\n", key, value)
 	}
+}
+
+func defaultTokenTransport(value string) string {
+	if value == "" {
+		return "bearer"
+	}
+	return value
 }
 
 func init() {

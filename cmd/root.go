@@ -14,23 +14,24 @@ import (
 )
 
 var (
-	serverAddr    string
-	host          string
-	port          int
-	scheme        string
-	namespace     string
-	authType      string
-	username      string
-	password      string
-	accessKey     string
-	secretKey     string
-	securityToken string
-	token         string
-	stsURL        string
-	stsAuthToken  string
-	configFile    string
-	profileName   string // Profile name for config file (default, dev, prod, etc.)
-	verbose       bool   // Enable verbose/debug output
+	serverAddr     string
+	host           string
+	port           int
+	scheme         string
+	namespace      string
+	authType       string
+	username       string
+	password       string
+	accessKey      string
+	secretKey      string
+	securityToken  string
+	token          string
+	tokenTransport string
+	stsURL         string
+	stsAuthToken   string
+	configFile     string
+	profileName    string // Profile name for config file (default, dev, prod, etc.)
+	verbose        bool   // Enable verbose/debug output
 )
 
 var rootCmd = &cobra.Command{
@@ -59,7 +60,7 @@ Examples:
 		var err error
 
 		// Check if any connection parameters are provided via command line
-		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || isCommandLineStsAuthType(authType) || scheme != ""
+		hasCommandLineConfig := host != "" || port > 0 || serverAddr != "" || username != "" || password != "" || accessKey != "" || secretKey != "" || securityToken != "" || tokenTransport != "" || isCommandLineStsAuthType(authType) || scheme != ""
 		envHost := strings.TrimSpace(os.Getenv("NACOS_HOST"))
 		envNamespace := strings.TrimSpace(os.Getenv("NACOS_NAMESPACE"))
 		envPortRaw := strings.TrimSpace(os.Getenv("NACOS_PORT"))
@@ -212,6 +213,18 @@ Examples:
 		if token == "" && fileConfig != nil {
 			token = fileConfig.Token
 		}
+		if tokenTransport == "" && fileConfig != nil {
+			tokenTransport = fileConfig.TokenTransport
+		}
+		if tokenTransport == "" {
+			tokenTransport = os.Getenv("NACOS_TOKEN_TRANSPORT")
+		}
+		normalizedTokenTransport, transportErr := client.NormalizeTokenTransport(tokenTransport)
+		if transportErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", transportErr)
+			os.Exit(1)
+		}
+		tokenTransport = normalizedTokenTransport
 
 		// Set default server address only when neither --host nor --port is provided.
 		if serverAddr == "" {
@@ -247,6 +260,7 @@ Examples:
 			fmt.Fprintf(os.Stderr, "[debug] scheme=%s\n", scheme)
 			fmt.Fprintf(os.Stderr, "[debug] serverAddr=%s\n", serverAddr)
 			fmt.Fprintf(os.Stderr, "[debug] namespace=%s\n", namespace)
+			fmt.Fprintf(os.Stderr, "[debug] tokenTransport=%s\n", tokenTransport)
 			if stsURL != "" {
 				fmt.Fprintf(os.Stderr, "[debug] stsURL=%s\n", stsURL)
 			}
@@ -366,6 +380,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&secretKey, "secret-key", "", "SecretKey (aliyun/STS auth)")
 	rootCmd.PersistentFlags().StringVar(&securityToken, "security-token", "", "STS SecurityToken (STS auth)")
 	rootCmd.PersistentFlags().StringVar(&token, "token", "", "Bearer token")
+	rootCmd.PersistentFlags().StringVar(&tokenTransport, "token-transport", "", "Access token transport: bearer, authorization, header, or query (default: bearer)")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose/debug output")
 
 	// Mark legacy server flag as deprecated but still functional
@@ -396,6 +411,7 @@ func mustNewNacosClient() *client.NacosClient {
 		serverAddr, namespace, authType, username, password,
 		accessKey, secretKey, securityToken, stsURL, stsAuthToken, scheme,
 		client.WithToken(token),
+		client.WithTokenTransport(tokenTransport),
 		func(c *client.NacosClient) {
 			c.Verbose = verbose
 		},

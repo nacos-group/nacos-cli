@@ -15,6 +15,7 @@ import (
 	"github.com/nacos-group/nacos-cli/internal/client"
 	"github.com/nacos-group/nacos-cli/internal/help"
 	"github.com/nacos-group/nacos-cli/internal/skill"
+	"github.com/nacos-group/nacos-cli/internal/util"
 )
 
 const defaultDescLimit = 200
@@ -1687,7 +1688,7 @@ func (t *Terminal) listConfigs(args []string) {
 
 // setConfig publishes a configuration (interactive mode: requires --file/-f)
 func (t *Terminal) setConfig(args []string) {
-	var dataID, group, filePath string
+	var dataID, group, filePath, configType string
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1695,6 +1696,13 @@ func (t *Terminal) setConfig(args []string) {
 			if i+1 < len(args) {
 				i++
 				filePath = args[i]
+			}
+			continue
+		}
+		if arg == "-t" || arg == "--type" {
+			if i+1 < len(args) {
+				i++
+				configType = args[i]
 			}
 			continue
 		}
@@ -1706,7 +1714,7 @@ func (t *Terminal) setConfig(args []string) {
 	}
 
 	if dataID == "" || group == "" {
-		fmt.Println("\033[31mUsage:\033[0m config-set <data-id> <group> [-f <file>]")
+		fmt.Println("\033[31mUsage:\033[0m config-set <data-id> <group> [-f <file>] [-t <type>]")
 		fmt.Println("\033[90mWithout -f: enter content in next lines, empty line to finish.\033[0m")
 		return
 	}
@@ -1751,8 +1759,10 @@ func (t *Terminal) setConfig(args []string) {
 		return
 	}
 
+	resolvedType := util.ResolveConfigType(configType, filePath, dataID)
+
 	fmt.Printf("\033[90mPublishing config: \033[33m%s\033[90m (\033[33m%s\033[90m)...\033[0m\n", dataID, group)
-	if err := t.client.PublishConfig(dataID, group, content); err != nil {
+	if err := t.client.PublishConfig(dataID, group, content, resolvedType); err != nil {
 		fmt.Printf("\033[31mError:\033[0m %v\n", err)
 		return
 	}

@@ -466,3 +466,97 @@ func TestUploadSkillZipPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceSkillFromZipRemovesStaleFiles(t *testing.T) {
+	outputDir := t.TempDir()
+	skillDir := filepath.Join(outputDir, "demo")
+	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "assets", "old.txt"), []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	zipBytes := makeSkillZip(t, "demo", map[string]string{
+		"SKILL.md":       "# New\n",
+		"assets/new.txt": "fresh\n",
+		"prompts/a.txt":  "hello\n",
+	})
+
+	if err := replaceSkillFromZip(zipBytes, outputDir, "demo"); err != nil {
+		t.Fatalf("replaceSkillFromZip: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(skillDir, "assets", "old.txt")); !os.IsNotExist(err) {
+		t.Fatalf("stale file still exists, stat err = %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "# New\n" {
+		t.Fatalf("SKILL.md = %q, want %q", string(body), "# New\n")
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "assets", "new.txt")); err != nil {
+		t.Fatalf("new asset missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "prompts", "a.txt")); err != nil {
+		t.Fatalf("new prompt missing: %v", err)
+	}
+}
+
+func TestReplaceSkillFromZipRejectsUnexpectedRootAndKeepsExistingFiles(t *testing.T) {
+	outputDir := t.TempDir()
+	skillDir := filepath.Join(outputDir, "demo")
+	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "assets", "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	zipBytes := makeSkillZip(t, "other", map[string]string{
+		"SKILL.md": "wrong root\n",
+	})
+
+	err := replaceSkillFromZip(zipBytes, outputDir, "demo")
+	if err == nil {
+		t.Fatal("expected error for unexpected zip root")
+	}
+
+	body, readErr := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != "# Original\n" {
+		t.Fatalf("SKILL.md changed to %q", string(body))
+	}
+	if _, statErr := os.Stat(filepath.Join(skillDir, "assets", "keep.txt")); statErr != nil {
+		t.Fatalf("existing file missing after failed replace: %v", statErr)
+	}
+}
+
+func makeSkillZip(t *testing.T, skillName string, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for relPath, content := range files {
+		writer, err := zw.Create(skillName + "/" + filepath.ToSlash(relPath))
+		if err != nil {
+			t.Fatalf("create zip entry %q: %v", relPath, err)
+		}
+		if _, err := writer.Write([]byte(content)); err != nil {
+			t.Fatalf("write zip entry %q: %v", relPath, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buf.Bytes()
+}

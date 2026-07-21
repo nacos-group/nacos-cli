@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nacos-group/nacos-cli/internal/client"
 	"gopkg.in/yaml.v3"
@@ -335,8 +337,7 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 		return client.ParseHTTPError(resp.StatusCode, zipBytes, "get skill")
 	}
 
-	// Extract ZIP to output directory
-	return extractZip(zipBytes, outputDir)
+	return replaceSkillFromZip(zipBytes, outputDir, skillName)
 }
 
 // ExtractSkillZip extracts a ZIP byte array to the target directory.
@@ -348,12 +349,12 @@ func ExtractSkillZip(zipBytes []byte, targetDir string) error {
 	}
 
 	for _, f := range zipReader.File {
-		// Security: reject path traversal
-		if strings.Contains(f.Name, "..") {
-			return fmt.Errorf("unsafe zip entry path: %s", f.Name)
+		zipPath, err := normalizeZipEntryPath(f.Name)
+		if err != nil {
+			return err
 		}
 
-		destPath := filepath.Join(targetDir, f.Name)
+		destPath := filepath.Join(targetDir, filepath.FromSlash(zipPath))
 
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(destPath, 0755); err != nil {
@@ -386,9 +387,105 @@ func ExtractSkillZip(zipBytes []byte, targetDir string) error {
 	return nil
 }
 
-// extractZip preserves the existing private helper name for older call sites in this package.
-func extractZip(zipBytes []byte, targetDir string) error {
-	return ExtractSkillZip(zipBytes, targetDir)
+func normalizeZipEntryPath(name string) (string, error) {
+	normalized := path.Clean(strings.ReplaceAll(name, "\\", "/"))
+	if normalized == "." || normalized == "" {
+		return "", fmt.Errorf("unsafe zip entry path: %s", name)
+	}
+	if strings.HasPrefix(normalized, "/") || normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("unsafe zip entry path: %s", name)
+	}
+	return normalized, nil
+}
+
+func validateSkillZip(zipBytes []byte, skillName string) error {
+	zipReader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to read zip: %w", err)
+	}
+
+	hasSkillRoot := false
+	hasSkillMD := false
+	expectedPrefix := skillName + "/"
+
+	for _, f := range zipReader.File {
+		zipPath, err := normalizeZipEntryPath(f.Name)
+		if err != nil {
+			return err
+		}
+		if zipPath != skillName && !strings.HasPrefix(zipPath, expectedPrefix) {
+			return fmt.Errorf("unexpected zip entry path %q: expected all files under %s/", f.Name, skillName)
+		}
+		hasSkillRoot = true
+		if zipPath == expectedPrefix+"SKILL.md" {
+			hasSkillMD = true
+		}
+	}
+
+	if !hasSkillRoot {
+		return fmt.Errorf("zip does not contain skill directory %s/", skillName)
+	}
+	if !hasSkillMD {
+		return fmt.Errorf("zip does not contain %s/SKILL.md", skillName)
+	}
+	return nil
+}
+
+func replaceSkillFromZip(zipBytes []byte, outputDir, skillName string) (retErr error) {
+	if err := validateSkillZip(zipBytes, skillName); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	stageRoot, err := os.MkdirTemp(outputDir, ".skill-stage-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(stageRoot); err != nil && retErr == nil {
+			retErr = fmt.Errorf("failed to clean temp directory: %w", err)
+		}
+	}()
+
+	if err := ExtractSkillZip(zipBytes, stageRoot); err != nil {
+		return err
+	}
+
+	stagedSkillDir := filepath.Join(stageRoot, skillName)
+	if _, err := os.Stat(filepath.Join(stagedSkillDir, "SKILL.md")); err != nil {
+		return fmt.Errorf("invalid skill zip: missing %s/SKILL.md", skillName)
+	}
+
+	targetSkillDir := filepath.Join(outputDir, skillName)
+	backupSkillDir := filepath.Join(outputDir, fmt.Sprintf(".%s.backup-%d", skillName, time.Now().UnixNano()))
+	backupCreated := false
+
+	if _, err := os.Stat(targetSkillDir); err == nil {
+		if err := os.Rename(targetSkillDir, backupSkillDir); err != nil {
+			return fmt.Errorf("failed to backup existing skill: %w", err)
+		}
+		backupCreated = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect existing skill: %w", err)
+	}
+
+	if err := os.Rename(stagedSkillDir, targetSkillDir); err != nil {
+		if backupCreated {
+			if rollbackErr := os.Rename(backupSkillDir, targetSkillDir); rollbackErr != nil {
+				return fmt.Errorf("failed to replace skill directory: %w; rollback failed: %v", err, rollbackErr)
+			}
+		}
+		return fmt.Errorf("failed to replace skill directory: %w", err)
+	}
+
+	if backupCreated {
+		if err := os.RemoveAll(backupSkillDir); err != nil {
+			return fmt.Errorf("failed to clean backup skill directory: %w", err)
+		}
+	}
+	return nil
 }
 
 // UploadSkill uploads a skill draft from local directory or a pre-built zip file.
@@ -743,7 +840,7 @@ func (s *SkillService) QuerySkill(skillName, outputDir, version, label, md5 stri
 		return nil, err
 	}
 	if result.Updated {
-		if err := extractZip(result.ZipBytes, outputDir); err != nil {
+		if err := replaceSkillFromZip(result.ZipBytes, outputDir, skillName); err != nil {
 			return nil, fmt.Errorf("failed to extract skill: %w", err)
 		}
 	}

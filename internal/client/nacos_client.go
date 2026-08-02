@@ -655,6 +655,11 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 		ns = ""
 	}
 
+	// Nacos 2.x 服务端没有 v3 client API，回退到 v1
+	if c.authLoginVersion == "v1" {
+		return c.getConfigV1(dataID, group, ns)
+	}
+
 	params := url.Values{}
 	params.Set("dataId", dataID)
 	params.Set("groupName", group)
@@ -704,6 +709,39 @@ func (c *NacosClient) GetConfig(dataID, group string) (string, error) {
 	return config.Content, nil
 }
 
+// getConfigV1 retrieves a specific configuration using Nacos v1 API.
+// Nacos 2.x 服务端不存在 v3 client API（/nacos/v3/client/cs/config），
+// 当登录探测判定为 v1 时回退到此实现。
+func (c *NacosClient) getConfigV1(dataID, group, namespace string) (string, error) {
+	params := url.Values{}
+	params.Set("dataId", dataID)
+	params.Set("group", group)
+	if namespace != "" {
+		params.Set("tenant", namespace)
+	}
+
+	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+		params.Set("accessToken", c.AccessToken)
+	}
+
+	v1URL := fmt.Sprintf("%s/nacos/v1/cs/configs", c.BaseURL())
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetQueryString(params.Encode())
+		c.setSpasHeaders(req, namespace, group)
+		return req.Get(v1URL)
+	})
+	if err != nil {
+		return "", fmt.Errorf("v1 get config failed: %w", err)
+	}
+
+	if resp.StatusCode() != 200 {
+		return "", ParseHTTPError(resp.StatusCode(), resp.Body(), "get config (v1)")
+	}
+
+	// v1 直接返回配置内容（非 JSON 包装），404 时返回空串由上层处理
+	return string(resp.Body()), nil
+}
+
 // PublishConfig publishes a configuration
 func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	if err := c.EnsureTokenValid(); err != nil {
@@ -717,6 +755,11 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 
 	if c.Namespace != "" {
 		params["namespaceId"] = c.Namespace
+	}
+
+	// Nacos 2.x 服务端没有 v3 admin API（/nacos/v3/admin/cs/config），回退到 v1
+	if c.authLoginVersion == "v1" {
+		return c.publishConfigV1(dataID, group, content)
 	}
 
 	apiURL := fmt.Sprintf("%s/nacos/v3/admin/cs/config", c.BaseURL())
@@ -756,4 +799,44 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 	}
 
 	return nil
+}
+
+// publishConfigV1 publishes a configuration using Nacos v1 API.
+// Nacos 2.x 服务端不存在 v3 admin API（/nacos/v3/admin/cs/config），
+// 当登录探测判定为 v1 时回退到此实现。
+// v1 与 v3 的差异：路径 /nacos/v1/cs/configs；参数 group（非 groupName）、
+// tenant（非 namespaceId）；token 放 accessToken 表单字段（非 Authorization 头）；
+// 响应为字面量 "true"/"false"（非 JSON 包装）。
+func (c *NacosClient) publishConfigV1(dataID, group, content string) error {
+	params := map[string]string{
+		"dataId":  dataID,
+		"group":   group,
+		"content": content,
+	}
+	if c.Namespace != "" {
+		params["tenant"] = c.Namespace
+	}
+	if c.AuthType == AuthTypeNacos && c.AccessToken != "" {
+		params["accessToken"] = c.AccessToken
+	}
+
+	v1URL := fmt.Sprintf("%s/nacos/v1/cs/configs", c.BaseURL())
+	resp, err := c.doWithStsRetry(func() (*resty.Response, error) {
+		req := c.httpClient.R().SetFormData(params)
+		c.setSpasHeaders(req, c.Namespace, group)
+		return req.Post(v1URL)
+	})
+	if err != nil {
+		return fmt.Errorf("publish config failed (v1): %w", err)
+	}
+
+	if resp.StatusCode() != 200 {
+		return ParseHTTPError(resp.StatusCode(), resp.Body(), "publish config (v1)")
+	}
+
+	// v1 成功返回字面量 "true"
+	if strings.TrimSpace(string(resp.Body())) == "true" {
+		return nil
+	}
+	return fmt.Errorf("publish config failed (v1): server returned %s", string(resp.Body()))
 }

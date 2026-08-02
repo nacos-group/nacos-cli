@@ -742,8 +742,18 @@ func (c *NacosClient) getConfigV1(dataID, group, namespace string) (string, erro
 	return string(resp.Body()), nil
 }
 
-// PublishConfig publishes a configuration
+// PublishConfigOptions contains optional metadata used when publishing config.
+type PublishConfigOptions struct {
+	Type string
+}
+
+// PublishConfig publishes a configuration.
 func (c *NacosClient) PublishConfig(dataID, group, content string) error {
+	return c.PublishConfigWithOptions(dataID, group, content, PublishConfigOptions{})
+}
+
+// PublishConfigWithOptions publishes a configuration with optional metadata.
+func (c *NacosClient) PublishConfigWithOptions(dataID, group, content string, opts PublishConfigOptions) error {
 	if err := c.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -752,6 +762,9 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 		"groupName": group,
 		"content":   content,
 	}
+	if opts.Type != "" {
+		params["type"] = opts.Type
+	}
 
 	if c.Namespace != "" {
 		params["namespaceId"] = c.Namespace
@@ -759,7 +772,7 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 
 	// Nacos 2.x 服务端没有 v3 admin API（/nacos/v3/admin/cs/config），回退到 v1
 	if c.authLoginVersion == "v1" {
-		return c.publishConfigV1(dataID, group, content)
+		return c.publishConfigV1(dataID, group, content, opts)
 	}
 
 	apiURL := fmt.Sprintf("%s/nacos/v3/admin/cs/config", c.BaseURL())
@@ -807,11 +820,14 @@ func (c *NacosClient) PublishConfig(dataID, group, content string) error {
 // v1 与 v3 的差异：路径 /nacos/v1/cs/configs；参数 group（非 groupName）、
 // tenant（非 namespaceId）；token 放 accessToken 表单字段（非 Authorization 头）；
 // 响应为字面量 "true"/"false"（非 JSON 包装）。
-func (c *NacosClient) publishConfigV1(dataID, group, content string) error {
+func (c *NacosClient) publishConfigV1(dataID, group, content string, opts PublishConfigOptions) error {
 	params := map[string]string{
 		"dataId":  dataID,
 		"group":   group,
 		"content": content,
+	}
+	if opts.Type != "" {
+		params["type"] = opts.Type
 	}
 	if c.Namespace != "" {
 		params["tenant"] = c.Namespace

@@ -360,6 +360,12 @@ var (
 			"",
 			"# Get a skill configuration",
 			"config-get skill.json skill_skill-creator",
+			"",
+			"# Output pure config content (no decoration, suitable for redirecting to a file)",
+			"config-get application.yaml DEFAULT_GROUP --output raw",
+			"",
+			"# Output config as JSON (for scripting)",
+			"config-get application.yaml DEFAULT_GROUP --output json",
 		},
 	}
 

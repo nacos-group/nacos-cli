@@ -36,6 +36,18 @@ func newInteractiveTerminal(nacosClient *client.NacosClient, profile, path strin
 		command.SetArgs(args)
 		return command.Execute()
 	})
+	term.SetAgentSpecListHandler(func(args []string) error {
+		command := newAgentSpecListCommandForSession(nacosClient, profile, path)
+		command.SilenceUsage, command.SilenceErrors = true, true
+		command.SetArgs(args)
+		return command.Execute()
+	})
+	term.SetAgentSpecGetHandler(func(args []string, readSelection func(string) (string, error)) error {
+		command := newAgentSpecGetCommandForSession(nacosClient, profile, path, readSelection)
+		command.SilenceUsage, command.SilenceErrors = true, true
+		command.SetArgs(args)
+		return command.Execute()
+	})
 
 	return term
 }

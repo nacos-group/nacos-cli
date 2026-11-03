@@ -82,6 +82,60 @@ The current business Namespace remains unchanged; users do not switch into the
 internal Hub Namespace. Different shares can contain the same package folder name;
 use separate `-o` directories when keeping them side by side.
 
+## Shared AgentSpec discovery
+
+The existing `agentspec-list` and `agentspec-get` commands now follow the same
+source selection as Skill. Both resource types share the Profile `source` field:
+`namespace`, `hub`, or `all` (default). Explicit `--hub` / `--no-hub` flags override
+it and are mutually exclusive, regardless of order. An explicit Hub entry ID also
+overrides the Profile, and cannot be combined with `--no-hub`.
+
+```bash
+nacos-cli profile set default source=all
+nacos-cli agentspec-list
+nacos-cli agentspec-list --hub --page 1 --size 20
+nacos-cli agentspec-list --no-hub --output json
+nacos-cli agentspec-get my-worker
+nacos-cli agentspec-get my-worker 749
+nacos-cli agentspec-get my-worker 749 --version 1.0.0 -o ./downloads/team-b
+nacos-cli agentspec-get my-worker --no-hub --label stable
+```
+
+Lists reuse `/v3/admin/ai/agentspecs/list`. Namespace and Hub retain independent
+pages and totals, without deduplicating equal display names. Single-source JSON
+keeps the original page structure; `all` JSON contains `source`, `namespace` and
+`hub`. Ordinary governance metadata, including private resources and drafts,
+remains available as authorized by the server. `--name` retains AgentSpec's
+existing exact-name filter. Hub display names and fixed versions come from the
+server's nested `hub` metadata. Hub timestamps and download counts are its own,
+not the source resource's. A failed source fails the command without partial output.
+An empty/disabled Hub yields an empty Hub page. Use `source=namespace` or
+`--no-hub` with servers that do not support Hub.
+
+Downloads reuse `/v3/client/ai/agentspecs`. A unique exact-name match downloads
+directly; duplicate names list the Namespace, author, source display name, Hub
+entry ID and fixed version for selection. Scripts can use an explicit entry ID
+or `--non-interactive`. As with Skill, a second canonical positive decimal argument
+is a Hub ID; other multi-name invocations keep batch downloading. The shared
+version may be omitted; a different explicit version is rejected. Hub labels
+permit only empty or `latest`; the CLI then sends the fixed version without a
+label, preventing the server's AgentSpec label fallback from overriding the pin.
+Revoked or changed shares fail without falling back to the source latest version.
+
+AgentSpec keeps its native JSON contract: `manifest.json` and resource files
+(including base64-encoded binary resources) are saved to
+`~/.agentspecs/<resource-name>`, or `<output>/<resource-name>` with `-o`.
+The directory uses the display name, not the opaque Hub ID. Manifest contents are
+preserved. Use separate output directories for same-name packages kept side by side.
+Downloads do not switch the active business Namespace, register synchronization,
+or import a server-side draft. Upload, review, release, describe and configuration
+commands keep their existing behavior. Both direct commands and the interactive
+terminal use the same list/get handlers, Profile reload and color rules as Skill.
+No standalone Hub command, new HTTP endpoint or resource-specific Profile key is added.
+
+See [AgentSpec Hub validation scenarios](docs/agentspec-hub-validation.md) for the
+regression and deployed integration checklist.
+
 ## Installation
 
 ### Official Installer

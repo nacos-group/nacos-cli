@@ -21,14 +21,16 @@ const defaultDescLimit = 200
 
 // Terminal represents an interactive terminal
 type Terminal struct {
-	client           *client.NacosClient
-	profileName      string
-	skillListHandler func([]string) error
-	skillGetHandler  func([]string, func(string) (string, error)) error
-	skillService     *skill.SkillService
-	agentSpecService *agentspec.AgentSpecService
-	rl               *readline.Instance
-	running          bool
+	client               *client.NacosClient
+	profileName          string
+	skillListHandler     func([]string) error
+	skillGetHandler      func([]string, func(string) (string, error)) error
+	agentSpecListHandler func([]string) error
+	agentSpecGetHandler  func([]string, func(string) (string, error)) error
+	skillService         *skill.SkillService
+	agentSpecService     *agentspec.AgentSpecService
+	rl                   *readline.Instance
+	running              bool
 }
 
 // NewTerminal creates a new interactive terminal
@@ -55,6 +57,16 @@ func (t *Terminal) SetSkillListHandler(handler func([]string) error) {
 // SetSkillGetHandler shares source selection and download behavior with the CLI.
 func (t *Terminal) SetSkillGetHandler(handler func([]string, func(string) (string, error)) error) {
 	t.skillGetHandler = handler
+}
+
+// SetAgentSpecListHandler shares the source-aware command with direct CLI invocations.
+func (t *Terminal) SetAgentSpecListHandler(handler func([]string) error) {
+	t.agentSpecListHandler = handler
+}
+
+// SetAgentSpecGetHandler shares fixed-version selection and downloads with the CLI.
+func (t *Terminal) SetAgentSpecGetHandler(handler func([]string, func(string) (string, error)) error) {
+	t.agentSpecGetHandler = handler
 }
 
 // getPrompt returns the prompt string with user info
@@ -136,13 +148,13 @@ func interactiveCompletionSpecs() map[string]completionSpec {
 			Flags: []string{"--help", "-h", "--tags"},
 		},
 		"agentspec-list": {
-			Flags: []string{"--help", "-h", "--name", "--page", "--size", "--output"},
+			Flags: []string{"--help", "-h", "--hub", "--no-hub", "--name", "--page", "--size", "--output"},
 		},
 		"agentspec-describe": {
 			Flags: []string{"--help", "-h", "--output"},
 		},
 		"agentspec-get": {
-			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o"},
+			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o", "--hub", "--no-hub", "--non-interactive"},
 			PathFlags: pathFlags("--output", "-o"),
 		},
 		"agentspec-upload": {
@@ -696,10 +708,10 @@ func (t *Terminal) showHelp() {
 
 	// AgentSpec Management
 	fmt.Println("\033[1;33mAgentSpec Management\033[0m")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-list", "List all agent specs", "agentspec-list [options]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-list", "List agent specs by Profile source", "agentspec-list [--hub|--no-hub] [options]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size, --output", "")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-describe", "Show agent spec detail + versions", "agentspec-describe <name> [--output json]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-get", "Download an agent spec to ~/.agentspecs", "agentspec-get <name> [--version v1] [--label stable]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-get", "Download an agent spec to ~/.agentspecs", "agentspec-get <name> [hubEntryId] [--version v1]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-upload", "Upload an agent spec draft (editing)", "agentspec-upload <path>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all agent specs in directory", "agentspec-upload --all <folder>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-review", "Submit a draft for review", "agentspec-review <name> [--version v1]")
@@ -1916,6 +1928,12 @@ func (t *Terminal) showAgentSpecPublishHelp() {
 
 // listAgentSpecs lists all agent specs
 func (t *Terminal) listAgentSpecs(args []string) {
+	if t.agentSpecListHandler != nil {
+		if err := t.agentSpecListHandler(args); err != nil {
+			fmt.Printf("\033[31mError:\033[0m %v\n", err)
+		}
+		return
+	}
 
 	// Parse flags
 	var name string
@@ -2051,6 +2069,20 @@ func strOrEmptyTerm(p *string) string {
 
 // getAgentSpec downloads one or more agent specs
 func (t *Terminal) getAgentSpec(args []string) {
+	if t.agentSpecGetHandler != nil {
+		readSelection := func(prompt string) (string, error) {
+			if t.rl == nil {
+				return "", fmt.Errorf("interactive input is unavailable; specify a hubEntryId")
+			}
+			t.rl.SetPrompt(prompt)
+			defer t.rl.SetPrompt(t.getPrompt())
+			return t.rl.Readline()
+		}
+		if err := t.agentSpecGetHandler(args, readSelection); err != nil {
+			fmt.Printf("\033[31mError:\033[0m %v\n", err)
+		}
+		return
+	}
 	if len(args) == 0 {
 		fmt.Println("\033[31mUsage:\033[0m agentspec-get <name> [name2...]")
 		return

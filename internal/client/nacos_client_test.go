@@ -3,8 +3,26 @@ package client
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestParseHTTPErrorPreservesValidationDetail(t *testing.T) {
+	for _, test := range []struct {
+		body string
+		want string
+	}{
+		{`{"code":20002,"message":"parameter validate error","data":"Param 'namespaceId/tenant' is illegal"}`, "parameter validate error: Param 'namespaceId/tenant' is illegal"},
+		{`{"message":"parameter validate error","data":null}`, "parameter validate error"},
+		{`{"message":"parameter validate error","data":{"internal":"not a displayable detail"}}`, "parameter validate error"},
+		{`{"data":"Required parameter 'pageNo' should be positive integer"}`, "Required parameter 'pageNo' should be positive integer"},
+	} {
+		err := ParseHTTPError(http.StatusBadRequest, []byte(test.body), "list skills")
+		if !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("missing concrete error: %v", err)
+		}
+	}
+}
 
 func TestBaseURL(t *testing.T) {
 	tests := []struct {

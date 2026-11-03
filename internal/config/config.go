@@ -33,6 +33,7 @@ type Config struct {
 	SecurityToken string `yaml:"securityToken"` // STS SecurityToken (legacy)
 	Token         string `yaml:"token"`         // Bearer token (AuthType=token)
 	Namespace     string `yaml:"namespace"`
+	Source        string `yaml:"source,omitempty"` // namespace | hub | all; empty defaults to all
 }
 
 // Settings stores CLI-wide profile state.
@@ -436,6 +437,11 @@ func (c *Config) SetValue(key, value string) error {
 		c.Token = value
 	case "namespace":
 		c.Namespace = value
+	case "source":
+		if _, err := NormalizeSkillSource(value); err != nil {
+			return err
+		}
+		c.Source = strings.ToLower(strings.TrimSpace(value))
 	default:
 		return fmt.Errorf("unknown profile key %q", key)
 	}
@@ -470,6 +476,9 @@ func (c *Config) GetValue(key string) (string, bool, error) {
 		return c.Token, true, nil
 	case "namespace":
 		return c.Namespace, false, nil
+	case "source":
+		value, err := NormalizeSkillSource(c.Source)
+		return value, false, err
 	default:
 		return "", false, fmt.Errorf("unknown profile key %q", key)
 	}

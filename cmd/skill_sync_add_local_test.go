@@ -11,7 +11,7 @@ import (
 
 func TestEnsureAgentsMergesNewWellKnownAgents(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 
 	codexPath := filepath.Join(home, ".codex", "skills")
 	agentsPath := filepath.Join(home, ".agents", "skills")

@@ -8,7 +8,7 @@ import (
 
 func TestDiscoverAgentsIncludesAgentSkillDirectories(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 
 	wantAgents := map[string]string{
 		"codex":     filepath.Join(home, ".codex", "skills"),

@@ -24,8 +24,7 @@ func writeSkillUnder(t *testing.T, root, name, content string) {
 func withRepoHome(t *testing.T) (home, repo string) {
 	t.Helper()
 	tmp := t.TempDir()
-	os.Setenv("HOME", tmp)
-	t.Cleanup(func() { os.Unsetenv("HOME") })
+	setTestHome(t, tmp)
 	repoPath, err := EnsureSkillRepo()
 	if err != nil {
 		t.Fatal(err)

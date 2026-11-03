@@ -4,13 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
 func TestSaveConfigEncryptsSensitiveFieldsAndLoadDecrypts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := GetProfileConfigPath("dev")
 	if err != nil {
@@ -66,7 +67,7 @@ func TestSaveConfigEncryptsSensitiveFieldsAndLoadDecrypts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat encryption key: %v", err)
 	}
-	if keyInfo.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && keyInfo.Mode().Perm() != 0600 {
 		t.Fatalf("encryption key mode = %v, want 0600", keyInfo.Mode().Perm())
 	}
 
@@ -86,7 +87,7 @@ func TestSaveConfigEncryptsSensitiveFieldsAndLoadDecrypts(t *testing.T) {
 
 func TestLoadConfigKeepsPlaintextLegacyConfigCompatible(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	configPath := filepath.Join(homeDir, "legacy.conf")
 	if err := os.WriteFile(configPath, []byte(`host: 127.0.0.1
 port: 8848
@@ -116,7 +117,7 @@ namespace: legacy-ns
 }
 
 func TestLoadOrCreateConfigMigratesPlaintextProfile(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := GetProfileConfigPath("default")
 	if err != nil {
@@ -157,7 +158,7 @@ namespace: migration-ns
 }
 
 func TestLoadEncryptedConfigRequiresExistingKey(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := GetProfileConfigPath("dev")
 	if err != nil {
@@ -213,7 +214,7 @@ func TestGetScheme(t *testing.T) {
 }
 
 func TestConfigWithSchemeField(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := GetProfileConfigPath("https-test")
 	if err != nil {
@@ -244,7 +245,7 @@ func TestConfigWithSchemeField(t *testing.T) {
 }
 
 func TestCurrentProfileSettings(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	current, err := GetCurrentProfile()
 	if err != nil {
@@ -278,7 +279,7 @@ func TestCurrentProfileSettings(t *testing.T) {
 }
 
 func TestListAndDeleteProfiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	for _, profile := range []string{"prod", "default", "dev"} {
 		configPath, err := GetProfileConfigPath(profile)

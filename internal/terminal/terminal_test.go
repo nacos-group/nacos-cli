@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,6 +11,61 @@ import (
 
 	"github.com/nacos-group/nacos-cli/internal/client"
 )
+
+func TestInteractiveSkillListUsesSharedHandlerAfterNamespaceSwitch(t *testing.T) {
+	for _, input := range []string{"skill-list", "skill-list --hub", "skill-list --no-hub", "skill-list --hub --no-hub", "skill-list --output json"} {
+		t.Run(input, func(t *testing.T) {
+			nacosClient := &client.NacosClient{Namespace: "original"}
+			term := NewTerminalWithProfile(nacosClient, "team")
+			called := false
+			term.SetSkillListHandler(func(args []string) error {
+				called = true
+				if nacosClient.Namespace != "switched-id" {
+					t.Fatalf("namespace switch lost: %s", nacosClient.Namespace)
+				}
+				_, want := parseCommandArgs(input)
+				if strings.Join(args, " ") != strings.Join(want, " ") {
+					t.Fatalf("args = %v, want %v", args, want)
+				}
+				return fmt.Errorf("validation detail from shared command")
+			})
+			output := captureTerminalStdout(t, func() {
+				term.handleCommand("ns switched-id")
+				term.handleCommand(input)
+			})
+			if !called || !strings.Contains(output, "validation detail from shared command") {
+				t.Fatalf("shared handler not used or error swallowed: %s", output)
+			}
+		})
+	}
+}
+
+func TestInteractiveSkillListCompletesSourceFlags(t *testing.T) {
+	flags := strings.Join(interactiveCompletionSpecs()["skill-list"].Flags, " ")
+	if !strings.Contains(flags, "--hub") || !strings.Contains(flags, "--no-hub") {
+		t.Fatalf("missing source flags: %s", flags)
+	}
+}
+
+func TestInteractiveSkillGetUsesSharedHandlerAndHidesInternalNamespace(t *testing.T) {
+	c := &client.NacosClient{Namespace: "business"}
+	term := NewTerminalWithProfile(c, "team")
+	called := false
+	term.SetSkillGetHandler(func(args []string, readSelection func(string) (string, error)) error {
+		called = true
+		if strings.Join(args, " ") != "find-skills 749" {
+			t.Fatalf("wrong get arguments: %v", args)
+		}
+		return fmt.Errorf("fixed-version selection")
+	})
+	out := captureTerminalStdout(t, func() {
+		term.handleCommand("ns __nacos_ai_hub__")
+		term.handleCommand("skill-get find-skills 749")
+	})
+	if !called || c.Namespace != "business" || !strings.Contains(out, "fixed-version selection") {
+		t.Fatalf("bad dispatch or internal Namespace switch: %s", out)
+	}
+}
 
 func TestParseCommandArgs(t *testing.T) {
 	tests := []struct {

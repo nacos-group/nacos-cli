@@ -22,10 +22,8 @@ func mustWriteFile(t *testing.T, path string, data []byte) {
 
 func TestLoadSyncState_Empty(t *testing.T) {
 	// Point to a temp dir so it won't find a real state file
-	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	setTestHome(t, tmpDir)
 
 	// Ensure config dir exists
 	configDir := filepath.Join(tmpDir, ".nacos-cli")
@@ -310,10 +308,8 @@ func TestComputeDirectoryHash_ExcludesGit(t *testing.T) {
 }
 
 func TestSyncState_SaveLoadRoundTrip(t *testing.T) {
-	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	setTestHome(t, tmpDir)
 
 	configDir := filepath.Join(tmpDir, ".nacos-cli")
 	mustMkdirAll(t, configDir)

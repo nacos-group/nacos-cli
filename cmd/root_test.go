@@ -13,7 +13,7 @@ import (
 
 func TestPersistentPreRunUsesNacosEnvConfig(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("NACOS_HOST", "127.0.0.1")
 	t.Setenv("NACOS_PORT", "8848")
 	t.Setenv("NACOS_NAMESPACE", "env-ns")
@@ -82,7 +82,7 @@ func TestPersistentPreRunConfigIgnoresInvalidEnvPort(t *testing.T) {
 
 func TestPersistentPreRunDoesNotAutoDetectStsHiclaw(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("NACOS_HOST", "127.0.0.1")
 	t.Setenv("HICLAW_CONTROLLER_URL", "http://controller")
 	t.Setenv("HICLAW_AUTH_TOKEN_FILE", filepath.Join(t.TempDir(), "token"))
@@ -102,7 +102,7 @@ func TestPersistentPreRunDoesNotAutoDetectStsHiclaw(t *testing.T) {
 
 func TestPersistentPreRunStsAgentTeamsUsesAgentTeamsEnv(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("NACOS_HOST", "127.0.0.1")
 	t.Setenv("NACOS_AUTH_TYPE", "sts-agentteams")
 	t.Setenv("HICLAW_CONTROLLER_URL", "http://hiclaw-controller")
@@ -130,7 +130,7 @@ func TestPersistentPreRunStsAgentTeamsUsesAgentTeamsEnv(t *testing.T) {
 
 func TestPersistentPreRunAuthTypeOverrideKeepsProfileConfig(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	profilePath, err := config.GetProfileConfigPath("dev")
 	if err != nil {
@@ -184,7 +184,7 @@ func TestMustNewNacosClientUsesToken(t *testing.T) {
 
 func TestPersistentPreRunLoadsProfileToken(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := config.GetProfileConfigPath("dev")
 	if err != nil {
@@ -212,7 +212,7 @@ func TestPersistentPreRunLoadsProfileToken(t *testing.T) {
 
 func TestPersistentPreRunCommandLineTokenOverridesProfile(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := config.GetProfileConfigPath("dev")
 	if err != nil {
@@ -241,7 +241,7 @@ func TestPersistentPreRunCommandLineTokenOverridesProfile(t *testing.T) {
 
 func TestCurrentTerminalProfileName(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Cleanup(func() {
 		profileName = ""
 	})
@@ -285,7 +285,7 @@ func TestSchemePriority_HttpHostOverridesProfileHttps(t *testing.T) {
 
 func TestSchemePriority_HttpsHostOverridesEnv(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("NACOS_SCHEME", "http")
 
 	// User explicitly passes --host https://nacos.example.com
@@ -304,7 +304,7 @@ func TestSchemePriority_HttpsHostOverridesEnv(t *testing.T) {
 
 func TestSchemePriority_ExplicitFlagOverridesHostPrefix(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	// --scheme flag takes highest priority, even over --host prefix
 	scheme = "http"
@@ -320,7 +320,7 @@ func TestSchemePriority_ExplicitFlagOverridesHostPrefix(t *testing.T) {
 
 func TestPersistentPreRunUsesCurrentProfile(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	configPath, err := config.GetProfileConfigPath("dev")
 	if err != nil {
@@ -346,7 +346,7 @@ func TestPersistentPreRunUsesCurrentProfile(t *testing.T) {
 
 func TestPersistentPreRunExplicitProfileOverridesCurrentProfile(t *testing.T) {
 	resetRootConfigForTest(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	devPath, err := config.GetProfileConfigPath("dev")
 	if err != nil {
@@ -380,7 +380,7 @@ func TestPersistentPreRunExplicitProfileOverridesCurrentProfile(t *testing.T) {
 func TestPersistentPreRunDoesNotCreateConfigForSkillSyncWithoutProfile(t *testing.T) {
 	resetRootConfigForTest(t)
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 
 	rootCmd.PersistentPreRun(skillSyncTestCommand("add"), nil)
 
@@ -401,7 +401,7 @@ func TestPersistentPreRunDoesNotCreateConfigForSkillSyncWithoutProfile(t *testin
 func TestPersistentPreRunSkillSyncWithoutProfileUsesActiveProfile(t *testing.T) {
 	resetRootConfigForTest(t)
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Cleanup(func() {
 		skill.SetCurrentSyncProfile("")
 	})
@@ -440,7 +440,7 @@ func TestPersistentPreRunSkillSyncWithoutProfileUsesActiveProfile(t *testing.T) 
 func TestPersistentPreRunAllowsModeLocalWithMissingExplicitProfile(t *testing.T) {
 	resetRootConfigForTest(t)
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Cleanup(func() {
 		skill.SetCurrentSyncProfile("")
 	})

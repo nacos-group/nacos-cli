@@ -847,14 +847,8 @@ func TestDecideStartConflictsNonInteractiveSkips(t *testing.T) {
 
 func withTempHome(t *testing.T) {
 	t.Helper()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	if err := os.Setenv("HOME", tmpHome); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.Setenv("HOME", origHome)
-	})
+	setTestHome(t, tmpHome)
 }
 
 func saveSyncStateForTest(t *testing.T, primary, secondary, syncedHash string) {

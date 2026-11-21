@@ -34,22 +34,15 @@ func newSkillGetCommand() *cobra.Command {
 }
 
 func newSkillGetCommandForSession(sessionClient *client.NacosClient, sessionProfile, sessionConfig string, readSelection func(string) (string, error)) *cobra.Command {
-	var output, version, label string
+	var output, version, label, entryID string
 	var hub, noHub, nonInteractive bool
 	command := &cobra.Command{
-		Use:               "skill-get <skillName> [hubEntryId] [version]",
+		Use:               "skill-get <skillName> [<skillName>...]",
 		Short:             "Download a skill by name; choose a source when names are ambiguous",
 		Long:              help.SkillGet.FormatForCLI("nacos-cli"),
-		Args:              cobra.MinimumNArgs(1),
+		Args:              validateHubGetNames,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return cmd.ValidateFlagGroups() },
-		RunE: func(cmd *cobra.Command, args []string) error {
-			names, entryID, selectedVersion, err := parseSkillGetSelection(args, version)
-			if err != nil {
-				return err
-			}
-			if entryID != "" && noHub {
-				return fmt.Errorf("hubEntryId cannot be combined with --no-hub")
-			}
+		RunE: func(cmd *cobra.Command, names []string) error {
 			profile, path := sessionProfile, sessionConfig
 			if sessionClient == nil {
 				profile, path = profileName, configFile
@@ -63,7 +56,7 @@ func newSkillGetCommandForSession(sessionClient *client.NacosClient, sessionProf
 				nacosClient = mustNewNacosClient()
 			}
 			if nacosClient.Namespace == skill.SharedNamespaceID {
-				return fmt.Errorf("keep the current business Namespace; use skill-get <skillName> <hubEntryId> to select Hub")
+				return fmt.Errorf("keep the current business Namespace; use skill-get <skillName> --hub-entry-id <id> to select Hub")
 			}
 			if output == "" || output == "~" || strings.HasPrefix(output, "~/") {
 				homeDir, err := os.UserHomeDir()
@@ -82,16 +75,18 @@ func newSkillGetCommandForSession(sessionClient *client.NacosClient, sessionProf
 			service := skill.NewSkillService(nacosClient)
 			var failures []string
 			var failedNames []string
+			completed := 0
 			for index, name := range names {
 				if len(names) > 1 {
 					fmt.Fprintf(cmd.OutOrStdout(), "\n[%d/%d] Fetching skill: %s...\n", index+1, len(names), name)
 				}
 				item, err := chooseSkillDownload(cmd, service, name, entryID, source, nonInteractive, readSelection)
 				if errors.Is(err, errSkillSelectionCancelled) {
-					return nil
+					break
 				}
+				completed++
 				if err == nil {
-					err = downloadSelectedSkill(cmd.OutOrStdout(), cmd.ErrOrStderr(), service, item, output, selectedVersion, label)
+					err = downloadSelectedSkill(cmd.OutOrStdout(), cmd.ErrOrStderr(), service, item, output, version, label)
 				}
 				if err != nil {
 					failures = append(failures, fmt.Sprintf("%s: %v", name, err))
@@ -103,7 +98,7 @@ func newSkillGetCommandForSession(sessionClient *client.NacosClient, sessionProf
 			}
 			if len(names) > 1 {
 				fmt.Fprintln(cmd.OutOrStdout(), "\n========== Summary ==========")
-				fmt.Fprintf(cmd.OutOrStdout(), "Total: %d | Success: %d | Failed: %d\n", len(names), len(names)-len(failures), len(failures))
+				fmt.Fprintf(cmd.OutOrStdout(), "Total: %d | Success: %d | Failed: %d\n", completed, completed-len(failures), len(failures))
 				if len(failedNames) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "Failed skills: %s\n", strings.Join(failedNames, ", "))
 				}
@@ -120,25 +115,31 @@ func newSkillGetCommandForSession(sessionClient *client.NacosClient, sessionProf
 	command.Flags().BoolVar(&hub, "hub", false, "Find only Hub skills, overriding the profile")
 	command.Flags().BoolVar(&noHub, "no-hub", false, "Download only from the current Namespace")
 	command.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Report ambiguous matches without prompting")
+	command.Flags().StringVar(&entryID, "hub-entry-id", "", "Select one Hub entry by ID for a single resource name")
+	command.MarkFlagsMutuallyExclusive("hub-entry-id", "no-hub")
 	command.MarkFlagsMutuallyExclusive("hub", "no-hub")
 	_ = command.MarkFlagDirname("output")
 	return command
 }
 
-func parseSkillGetSelection(args []string, version string) ([]string, string, string, error) {
-	if len(args) >= 2 && skill.IsHubEntryID(args[1]) {
-		if len(args) > 3 {
-			return nil, "", "", fmt.Errorf("use skill-get <skillName> <hubEntryId> [version]")
-		}
-		if len(args) == 3 {
-			if version != "" && version != args[2] {
-				return nil, "", "", fmt.Errorf("positional version conflicts with --version")
-			}
-			version = args[2]
-		}
-		return args[:1], args[1], version, nil
+// Both get commands accept numeric resource names in a batch.
+func validateHubGetNames(cmd *cobra.Command, names []string) error {
+	if err := cobra.MinimumNArgs(1)(cmd, names); err != nil {
+		return err
 	}
-	return args, "", version, nil
+	if cmd.Flags().Changed("hub-entry-id") {
+		if len(names) != 1 {
+			return fmt.Errorf("--hub-entry-id requires exactly one resource name")
+		}
+		id, err := cmd.Flags().GetString("hub-entry-id")
+		if err != nil {
+			return err
+		}
+		if !skill.IsHubEntryID(id) {
+			return fmt.Errorf("--hub-entry-id must be a positive decimal entry ID")
+		}
+	}
+	return nil
 }
 
 func chooseSkillDownload(cmd *cobra.Command, service *skill.SkillService, name, entryID, source string, nonInteractive bool, readSelection func(string) (string, error)) (skill.SkillListItem, error) {
@@ -171,13 +172,13 @@ func chooseSkillDownload(cmd *cobra.Command, service *skill.SkillService, name, 
 	fmt.Fprintf(cmd.OutOrStdout(), "Multiple skills named %q; choose the source:\n", name)
 	for index, item := range candidates {
 		if item.DiscoverySource == "HUB" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  [%d] Hub | author=%s | source=%s | version=%s | hubEntryId=%s\n      skill-get %s %s\n", index+1, item.Owner, item.SourceDisplayName, item.Version, item.HubEntryID, name, item.HubEntryID)
+			fmt.Fprintf(cmd.OutOrStdout(), "  [%d] Hub | author=%s | source=%s | version=%s | hubEntryId=%s\n      skill-get %s --hub-entry-id %s\n", index+1, item.Owner, item.SourceDisplayName, item.Version, item.HubEntryID, name, item.HubEntryID)
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "  [%d] Namespace %s | author=%s | latest=%s\n      skill-get %s --no-hub\n", index+1, item.NamespaceID, item.Owner, dashIfEmpty(item.Labels["latest"]), name)
 		}
 	}
 	if nonInteractive || (readSelection == nil && !stdinIsTerminal()) {
-		return skill.SkillListItem{}, fmt.Errorf("ambiguous name; specify skill-get %s <hubEntryId> or --no-hub", name)
+		return skill.SkillListItem{}, fmt.Errorf("ambiguous name; specify skill-get %s --hub-entry-id <id> or --no-hub", name)
 	}
 	if readSelection == nil {
 		reader := bufio.NewReader(cmd.InOrStdin())
@@ -212,6 +213,18 @@ func downloadSelectedSkill(out, errOut io.Writer, service *skill.SkillService, i
 	if !result.Updated {
 		return fmt.Errorf("server returned no downloadable content")
 	}
+	name := item.Name
+	if item.DiscoverySource == "HUB" {
+		name = item.DisplayName
+	}
+	dest := filepath.Join(output, name)
+	if info, err := os.Lstat(dest); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			fmt.Fprintf(errOut, "Warning: %s is a link; matching files in its target will be overwritten.\n", dest)
+		} else if info.IsDir() {
+			fmt.Fprintf(errOut, "Warning: %s already exists; matching files will be overwritten.\n", dest)
+		}
+	}
 	if err := skill.ExtractSkillZip(result.ZipBytes, output); err != nil {
 		return err
 	}
@@ -226,10 +239,6 @@ func downloadSelectedSkill(out, errOut io.Writer, service *skill.SkillService, i
 		if err != nil {
 			fmt.Fprintf(errOut, "Warning: could not update skills-lock.json: %v\n", err)
 		}
-	}
-	name := item.DisplayName
-	if name == "" {
-		name = item.Name
 	}
 	fmt.Fprintf(out, "Skill downloaded successfully: %s [%s]\n  Location: %s\n", name, item.DiscoverySource, location)
 	if item.DiscoverySource == "HUB" {

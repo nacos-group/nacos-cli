@@ -17,7 +17,7 @@ const (
 func NormalizeSkillSource(value string) (string, error) {
 	switch value = strings.ToLower(strings.TrimSpace(value)); value {
 	case "":
-		return SkillSourceAll, nil
+		return SkillSourceNamespace, nil
 	case SkillSourceNamespace, SkillSourceHub, SkillSourceAll:
 		return value, nil
 	default:

@@ -7,7 +7,7 @@ import (
 	"github.com/nacos-group/nacos-cli/internal/config"
 )
 
-// IsHubEntryID distinguishes an explicit Hub selection from legacy batch names.
+// IsHubEntryID checks for a canonical positive decimal Hub entry ID.
 func IsHubEntryID(value string) bool {
 	id, err := strconv.ParseInt(value, 10, 64)
 	return err == nil && id > 0 && strconv.FormatInt(id, 10) == value
@@ -21,7 +21,7 @@ func (s *SkillService) FindSkillDownloadCandidates(name, source string) ([]Skill
 		return nil, err
 	}
 	if s.client.Namespace == SharedNamespaceID {
-		return nil, fmt.Errorf("select a Hub entry with skill-get <skillName> <hubEntryId>; keep the current Namespace unchanged")
+		return nil, fmt.Errorf("select a Hub entry with skill-get <skillName> --hub-entry-id <id>; keep the current Namespace unchanged")
 	}
 	namespaces := []string{}
 	if mode != config.SkillSourceHub {

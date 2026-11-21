@@ -18,7 +18,7 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 
 The existing `skill-list` command supports three sources: `namespace`, `hub`,
 and `all` (Namespace + Hub). Explicit command flags override the current profile's
-`source` setting; an unset setting defaults to `all`.
+`source` setting; an unset setting defaults to `namespace`.
 `--hub` means **only Hub**; `--no-hub` means **only the current Namespace**.
 Supplying both flags is an error regardless of their order.
 
@@ -30,8 +30,8 @@ nacos-cli skill-list --hub                # Only Hub
 nacos-cli skill-list --no-hub             # Only current Namespace
 nacos-cli skill-list --name review --output json
 nacos-cli skill-get find-skills                # Choose if multiple sources match
-nacos-cli skill-get find-skills 749            # Explicit Hub entry; version optional
-nacos-cli skill-get find-skills 749 -o ./downloads/hub-749
+nacos-cli skill-get find-skills --hub-entry-id 749  # Explicit Hub entry; version optional
+nacos-cli skill-get find-skills --hub-entry-id 749 -o ./downloads/hub-749
 ```
 
 Profile YAML uses `source: namespace`, `source: hub`, or `source: all`.
@@ -67,26 +67,29 @@ sync lock or enable automatic synchronization.
 
 `skill-get <name>` searches the Profile's selected sources by exact name. A unique
 match is downloaded directly. Duplicate names show source, author, shared version,
-and commands such as `skill-get find-skills 749`. In an interactive terminal, choose
-a candidate number, or press Enter to return and run one of those commands.
+and commands such as `skill-get find-skills --hub-entry-id 749`. In an interactive
+terminal, choose a candidate number or press Enter to cancel. Cancelling a batch
+stops the remaining downloads and reports the completed items. An earlier failure
+still gives the command a nonzero exit status.
 Scripts can pass an entry ID directly; `--non-interactive` reports ambiguity without
 waiting for input. `--hub` and `--no-hub` override the Profile for downloads too.
 
-`skill-get <name> <hubEntryId> [version]` explicitly selects Hub, overriding the
-Profile preference. The second positive decimal argument is an entry ID; other
-multiple-name invocations retain batch download behavior. Hub has one current
-shared version, so version is optional; an explicit different version fails.
+`skill-get <name> --hub-entry-id <id> [--version <version>]` selects one Hub entry and
+overrides the Profile preference. Positional arguments are resource names, including
+numeric names in batch downloads. Each Hub entry shares one version. Omitting
+`--version` uses that version, and requesting a different version fails.
 The CLI sends the selected fixed version to the original download API. If sharing
 changes before download, it reports an error and asks for a fresh selection.
 The current business Namespace remains unchanged; users do not switch into the
 internal Hub Namespace. Different shares can contain the same package folder name;
-use separate `-o` directories when keeping them side by side.
+use separate `-o` directories when keeping them side by side. Both Namespace and Hub
+downloads warn before overwriting matching files in an existing Skill directory.
 
 ## Shared AgentSpec discovery
 
 The existing `agentspec-list` and `agentspec-get` commands now follow the same
 source selection as Skill. Both resource types share the Profile `source` field:
-`namespace`, `hub`, or `all` (default). Explicit `--hub` / `--no-hub` flags override
+`namespace` (default), `hub`, or `all`. Explicit `--hub` / `--no-hub` flags override
 it and are mutually exclusive, regardless of order. An explicit Hub entry ID also
 overrides the Profile, and cannot be combined with `--no-hub`.
 
@@ -96,8 +99,8 @@ nacos-cli agentspec-list
 nacos-cli agentspec-list --hub --page 1 --size 20
 nacos-cli agentspec-list --no-hub --output json
 nacos-cli agentspec-get my-worker
-nacos-cli agentspec-get my-worker 749
-nacos-cli agentspec-get my-worker 749 --version 1.0.0 -o ./downloads/team-b
+nacos-cli agentspec-get my-worker --hub-entry-id 749
+nacos-cli agentspec-get my-worker --hub-entry-id 749 --version 1.0.0 -o ./downloads/team-b
 nacos-cli agentspec-get my-worker --no-hub --label stable
 ```
 
@@ -114,10 +117,10 @@ An empty/disabled Hub yields an empty Hub page. Use `source=namespace` or
 
 Downloads reuse `/v3/client/ai/agentspecs`. A unique exact-name match downloads
 directly; duplicate names list the Namespace, author, source display name, Hub
-entry ID and fixed version for selection. Scripts can use an explicit entry ID
-or `--non-interactive`. As with Skill, a second canonical positive decimal argument
-is a Hub ID; other multi-name invocations keep batch downloading. The shared
-version may be omitted; a different explicit version is rejected. Hub labels
+entry ID and fixed version for selection. Scripts can select a single name with
+`--hub-entry-id <id>` or use `--non-interactive` to report ambiguity. Positional
+arguments are resource names. Omitting the version uses the shared version.
+Requesting a different version fails. Hub labels
 permit only empty or `latest`; the CLI then sends the fixed version without a
 label, preventing the server's AgentSpec label fallback from overriding the pin.
 Revoked or changed shares fail without falling back to the source latest version.

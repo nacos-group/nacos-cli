@@ -24,7 +24,7 @@ func TestSkillSourceProfileRoundTripAndValidation(t *testing.T) {
 		}
 		want := source
 		if want == "" {
-			want = "all"
+			want = "namespace"
 		}
 		got, sensitive, err := loaded.GetValue("source")
 		if err != nil || got != want || sensitive {
@@ -42,13 +42,13 @@ func TestSkillSourceProfileRoundTripAndValidation(t *testing.T) {
 
 func TestProfileSourceCanonicalAndLegacyYAML(t *testing.T) {
 	for _, tc := range []struct{ name, yaml, want string }{
-		{"unset", "", "all"},
+		{"unset", "", "namespace"},
 		{"canonical", "source: namespace\n", "namespace"},
 		{"legacy", "skillSource: hub\n", "hub"},
 		{"canonical wins", "source: namespace\nskillSource: hub\n", "namespace"},
 		{"canonical wins reversed", "skillSource: hub\nsource: namespace\n", "namespace"},
-		{"explicit empty wins", "skillSource: hub\nsource: ''\n", "all"},
-		{"explicit null wins", "skillSource: hub\nsource: null\n", "all"},
+		{"explicit empty wins", "skillSource: hub\nsource: ''\n", "namespace"},
+		{"explicit null wins", "skillSource: hub\nsource: null\n", "namespace"},
 		{"canonical ignores invalid legacy", "source: all\nskillSource: [bad]\n", "all"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

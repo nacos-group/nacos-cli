@@ -40,12 +40,12 @@ func TestInteractiveAgentSpecGetSharesSelectionHandlerAndCompletion(t *testing.T
 	called := false
 	term.SetAgentSpecGetHandler(func(args []string, readSelection func(string) (string, error)) error {
 		called = true
-		if !reflect.DeepEqual(args, []string{"same", "749", "--version", "v2"}) || readSelection == nil || c.Namespace != "business" {
+		if !reflect.DeepEqual(args, []string{"same", "--hub-entry-id", "749", "--version", "v2"}) || readSelection == nil || c.Namespace != "business" {
 			t.Fatalf("lost shared selection: %v", args)
 		}
 		return fmt.Errorf("pinned version unavailable")
 	})
-	output := captureTerminalStdout(t, func() { term.handleCommand("agentspec-get same 749 --version v2") })
+	output := captureTerminalStdout(t, func() { term.handleCommand("agentspec-get same --hub-entry-id 749 --version v2") })
 	if !called || !strings.Contains(output, "pinned version unavailable") {
 		t.Fatal("download bypassed shared handler")
 	}

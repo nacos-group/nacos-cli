@@ -66,7 +66,10 @@ func TestAgentSpecListSourcePriorityJSONAndSessionReload(t *testing.T) {
 				if err := command.Execute(); err != nil {
 					t.Fatal(err)
 				}
-				mode, _ := config.NormalizeSkillSource(preference)
+				mode := preference
+				if mode == "" {
+					mode = "namespace"
+				}
 				if flag == "--hub" {
 					mode = "hub"
 				}
@@ -129,10 +132,10 @@ func TestAgentSpecCommandsRejectConflictBeforeProfileSetup(t *testing.T) {
 		}
 	}
 	command := newAgentSpecGetCommandForSession(nil, "", "", nil)
-	command.SetArgs([]string{"same", "749", "--no-hub"})
+	command.SetArgs([]string{"same", "--hub-entry-id", "749", "--no-hub"})
 	command.SetOut(&bytes.Buffer{})
 	command.SetErr(&bytes.Buffer{})
-	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "hubEntryId") {
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "hub-entry-id") {
 		t.Fatalf("explicit Hub ID and --no-hub accepted: %v", err)
 	}
 }
@@ -180,7 +183,11 @@ func TestAgentSpecListHubFailureDoesNotEmitPartialResults(t *testing.T) {
 		fmt.Fprint(w, `{"code":0,"data":{"totalCount":1,"pageItems":[{"name":"local"}]}}`)
 	}))
 	defer server.Close()
-	command := newAgentSpecListCommandForSession(newAgentSpecHubTestClient(t, server), "", "")
+	path := filepath.Join(t.TempDir(), "profile.conf")
+	if err := (&config.Config{Source: "all"}).SaveConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	command := newAgentSpecListCommandForSession(newAgentSpecHubTestClient(t, server), "", path)
 	var output bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&bytes.Buffer{})
@@ -224,7 +231,7 @@ func TestAgentSpecGetSameNameSelectionAndExplicitIdentity(t *testing.T) {
 			case "choose-hub":
 				choose = func(string) (string, error) { return "2", nil }
 			case "explicit":
-				args = append(args, "749", "v2")
+				args = append(args, "--hub-entry-id", "749", "--version", "v2")
 			case "non-interactive":
 				args = append(args, "--non-interactive")
 			case "cancel":
@@ -232,15 +239,19 @@ func TestAgentSpecGetSameNameSelectionAndExplicitIdentity(t *testing.T) {
 			case "invalid-choice":
 				choose = func(string) (string, error) { return "9", nil }
 			case "wrong-version":
-				args = append(args, "749", "--version", "v1")
+				args = append(args, "--hub-entry-id", "749", "--version", "v1")
 			case "wrong-label":
-				args = append(args, "749", "--label", "stable")
+				args = append(args, "--hub-entry-id", "749", "--label", "stable")
 			case "wrong-name":
 				args[0] = "different"
-				args = append(args, "749")
+				args = append(args, "--hub-entry-id", "749")
 			}
 			c := newAgentSpecHubTestClient(t, server)
-			command := newAgentSpecGetCommandForSession(c, "", "", choose)
+			path := filepath.Join(t.TempDir(), "profile.conf")
+			if err := (&config.Config{Source: "all"}).SaveConfig(path); err != nil {
+				t.Fatal(err)
+			}
+			command := newAgentSpecGetCommandForSession(c, "", path, choose)
 			var output bytes.Buffer
 			command.SetOut(&output)
 			command.SetErr(&bytes.Buffer{})
@@ -291,6 +302,9 @@ func TestAgentSpecOrdinaryBatchRetainsClientOnlyVersionLabelAndSummary(t *testin
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if q.Get("name") != "123" {
+			t.Errorf("expected numeric resource name: %s", r.URL)
+		}
 		fmt.Fprint(w, `{"code":0,"data":{"content":"{}"}}`)
 	}))
 	defer server.Close()
@@ -298,12 +312,12 @@ func TestAgentSpecOrdinaryBatchRetainsClientOnlyVersionLabelAndSummary(t *testin
 	var output bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&bytes.Buffer{})
-	command.SetArgs([]string{"missing", "same", "--no-hub", "--version", "v1", "--label", "stable", "-o", t.TempDir()})
+	command.SetArgs([]string{"missing", "123", "--no-hub", "--version", "v1", "--label", "stable", "-o", t.TempDir()})
 	command.SilenceErrors, command.SilenceUsage = true, true
 	if err := command.Execute(); err == nil {
 		t.Fatal("partial failure must return an error")
 	}
-	for _, expected := range []string{"[1/2] Fetching agent spec: missing", "[2/2] Fetching agent spec: same", "Total: 2 | Success: 1 | Failed: 1", "Failed agent specs: missing"} {
+	for _, expected := range []string{"[1/2] Fetching agent spec: missing", "[2/2] Fetching agent spec: 123", "Total: 2 | Success: 1 | Failed: 1", "Failed agent specs: missing"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %q in %s", expected, output.String())
 		}
@@ -328,19 +342,13 @@ func TestAgentSpecProfileSourceSharedWithSkillAndExplicitIDOverrides(t *testing.
 	defer server.Close()
 	command := newAgentSpecGetCommandForSession(newAgentSpecHubTestClient(t, server), "team", path, nil)
 	command.SetOut(&bytes.Buffer{})
-	command.SetArgs([]string{"same", "749", "-o", t.TempDir()})
+	command.SetArgs([]string{"same", "--hub-entry-id", "749", "-o", t.TempDir()})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	for _, key := range []string{"agentSpecSource", "agentspec-source"} {
 		if isProfileFieldKey(key) {
 			t.Fatalf("introduced separate profile source %s", key)
-		}
-	}
-	for _, args := range [][]string{{"same", "749", "v2", "extra"}, {"same", "749", "v2"}} {
-		_, _, _, err := parseAgentSpecGetSelection(args, "v1")
-		if err == nil {
-			t.Fatalf("invalid positional version accepted: %v", args)
 		}
 	}
 }

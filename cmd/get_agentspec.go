@@ -35,22 +35,15 @@ func newAgentSpecGetCommand() *cobra.Command {
 }
 
 func newAgentSpecGetCommandForSession(sessionClient *client.NacosClient, sessionProfile, sessionConfig string, readSelection func(string) (string, error)) *cobra.Command {
-	var output, version, label string
+	var output, version, label, entryID string
 	var hub, noHub, nonInteractive bool
 	command := &cobra.Command{
-		Use:               "agentspec-get <name> [hubEntryId] [version]",
+		Use:               "agentspec-get <name> [<name>...]",
 		Short:             "Download an agent spec by name; choose a source when names are ambiguous",
 		Long:              help.AgentSpecGet.FormatForCLI("nacos-cli"),
-		Args:              cobra.MinimumNArgs(1),
+		Args:              validateHubGetNames,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return cmd.ValidateFlagGroups() },
-		RunE: func(cmd *cobra.Command, args []string) error {
-			names, entryID, selectedVersion, err := parseAgentSpecGetSelection(args, version)
-			if err != nil {
-				return err
-			}
-			if entryID != "" && noHub {
-				return fmt.Errorf("hubEntryId cannot be combined with --no-hub")
-			}
+		RunE: func(cmd *cobra.Command, names []string) error {
 			profile, path := sessionProfile, sessionConfig
 			if sessionClient == nil {
 				profile, path = profileName, configFile
@@ -64,7 +57,7 @@ func newAgentSpecGetCommandForSession(sessionClient *client.NacosClient, session
 				nacosClient = mustNewNacosClient()
 			}
 			if nacosClient.Namespace == agentspec.SharedNamespaceID {
-				return fmt.Errorf("keep the current business Namespace; use agentspec-get <name> <hubEntryId> to select Hub")
+				return fmt.Errorf("keep the current business Namespace; use agentspec-get <name> --hub-entry-id <id> to select Hub")
 			}
 			if output == "" {
 				homeDir, err := os.UserHomeDir()
@@ -81,16 +74,18 @@ func newAgentSpecGetCommandForSession(sessionClient *client.NacosClient, session
 			service := agentspec.NewAgentSpecService(nacosClient)
 			var failures []string
 			var failedNames []string
+			completed := 0
 			for index, name := range names {
 				if len(names) > 1 {
 					fmt.Fprintf(cmd.OutOrStdout(), "\n[%d/%d] Fetching agent spec: %s...\n", index+1, len(names), name)
 				}
 				item, err := chooseAgentSpecDownload(cmd, service, name, entryID, source, nonInteractive, readSelection)
 				if errors.Is(err, errAgentSpecSelectionCancelled) {
-					return nil
+					break
 				}
+				completed++
 				if err == nil {
-					err = downloadSelectedAgentSpec(cmd.OutOrStdout(), service, item, output, selectedVersion, label)
+					err = downloadSelectedAgentSpec(cmd.OutOrStdout(), service, item, output, version, label)
 				}
 				if err != nil {
 					failures = append(failures, fmt.Sprintf("%s: %v", name, err))
@@ -102,7 +97,7 @@ func newAgentSpecGetCommandForSession(sessionClient *client.NacosClient, session
 			}
 			if len(names) > 1 {
 				fmt.Fprintln(cmd.OutOrStdout(), "\n========== Summary ==========")
-				fmt.Fprintf(cmd.OutOrStdout(), "Total: %d | Success: %d | Failed: %d\n", len(names), len(names)-len(failures), len(failures))
+				fmt.Fprintf(cmd.OutOrStdout(), "Total: %d | Success: %d | Failed: %d\n", completed, completed-len(failures), len(failures))
 				if len(failedNames) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "Failed agent specs: %s\n", strings.Join(failedNames, ", "))
 				}
@@ -119,25 +114,11 @@ func newAgentSpecGetCommandForSession(sessionClient *client.NacosClient, session
 	command.Flags().BoolVar(&hub, "hub", false, "Find only Hub agent specs, overriding the profile")
 	command.Flags().BoolVar(&noHub, "no-hub", false, "Download only from the current Namespace")
 	command.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Report ambiguous matches without prompting")
+	command.Flags().StringVar(&entryID, "hub-entry-id", "", "Select one Hub entry by ID for a single resource name")
+	command.MarkFlagsMutuallyExclusive("hub-entry-id", "no-hub")
 	command.MarkFlagsMutuallyExclusive("hub", "no-hub")
 	_ = command.MarkFlagDirname("output")
 	return command
-}
-
-func parseAgentSpecGetSelection(args []string, version string) ([]string, string, string, error) {
-	if len(args) >= 2 && agentspec.IsHubEntryID(args[1]) {
-		if len(args) > 3 {
-			return nil, "", "", fmt.Errorf("use agentspec-get <name> <hubEntryId> [version]")
-		}
-		if len(args) == 3 {
-			if version != "" && version != args[2] {
-				return nil, "", "", fmt.Errorf("positional version conflicts with --version")
-			}
-			version = args[2]
-		}
-		return args[:1], args[1], version, nil
-	}
-	return args, "", version, nil
 }
 
 func chooseAgentSpecDownload(cmd *cobra.Command, service *agentspec.AgentSpecService, name, entryID, source string, nonInteractive bool, readSelection func(string) (string, error)) (agentspec.AgentSpecListItem, error) {
@@ -170,13 +151,13 @@ func chooseAgentSpecDownload(cmd *cobra.Command, service *agentspec.AgentSpecSer
 	fmt.Fprintf(cmd.OutOrStdout(), "Multiple agent specs named %q; choose the source:\n", name)
 	for index, item := range candidates {
 		if item.DiscoverySource == "HUB" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  [%d] Hub | author=%s | source=%s | version=%s | hubEntryId=%s\n      agentspec-get %s %s\n", index+1, item.Owner, item.SourceDisplayName, item.Version, item.HubEntryID, name, item.HubEntryID)
+			fmt.Fprintf(cmd.OutOrStdout(), "  [%d] Hub | author=%s | source=%s | version=%s | hubEntryId=%s\n      agentspec-get %s --hub-entry-id %s\n", index+1, item.Owner, item.SourceDisplayName, item.Version, item.HubEntryID, name, item.HubEntryID)
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "  [%d] Namespace %s | author=%s | latest=%s\n      agentspec-get %s --no-hub\n", index+1, item.NamespaceId, item.Owner, dashIfEmpty(item.Labels["latest"]), name)
 		}
 	}
 	if nonInteractive || (readSelection == nil && !stdinIsTerminal()) {
-		return agentspec.AgentSpecListItem{}, fmt.Errorf("ambiguous name; specify agentspec-get %s <hubEntryId> or --no-hub", name)
+		return agentspec.AgentSpecListItem{}, fmt.Errorf("ambiguous name; specify agentspec-get %s --hub-entry-id <id> or --no-hub", name)
 	}
 	if readSelection == nil {
 		reader := bufio.NewReader(cmd.InOrStdin())

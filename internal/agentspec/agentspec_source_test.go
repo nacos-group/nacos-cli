@@ -69,7 +69,7 @@ func TestAgentSpecSourceIndependentPagesAndWireMetadata(t *testing.T) {
 					t.Fatalf("lost ordinary governance: %+v", pages.Namespace)
 				}
 			}
-			if mode != "namespace" {
+			if mode == "all" || mode == "hub" {
 				want = append(want, SharedNamespaceID)
 				item := pages.Hub.PageItems[0]
 				if pages.Hub.TotalCount != 7 || item.Name != "749" || item.DisplayName != "same" || item.Version != "v2" || item.SourceDisplayName != "Team B" || item.Owner != "author" || item.UpdateTime != 123 || *item.DownloadCount != 4 || item.DiscoverySource != "HUB" {

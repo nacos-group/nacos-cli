@@ -33,7 +33,7 @@ type Config struct {
 	SecurityToken string `yaml:"securityToken"` // STS SecurityToken (legacy)
 	Token         string `yaml:"token"`         // Bearer token (AuthType=token)
 	Namespace     string `yaml:"namespace"`
-	Source        string `yaml:"source,omitempty"` // namespace | hub | all; empty defaults to all
+	Source        string `yaml:"source,omitempty"` // namespace | hub | all; empty defaults to namespace
 }
 
 // Settings stores CLI-wide profile state.

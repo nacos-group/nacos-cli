@@ -118,7 +118,7 @@ func interactiveCompletionSpecs() map[string]completionSpec {
 			Flags: []string{"--help", "-h", "--output"},
 		},
 		"skill-get": {
-			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o", "--hub", "--no-hub", "--non-interactive"},
+			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o", "--hub", "--no-hub", "--hub-entry-id", "--non-interactive"},
 			PathFlags: pathFlags("--output", "-o"),
 		},
 		"skill-upload": {
@@ -154,7 +154,7 @@ func interactiveCompletionSpecs() map[string]completionSpec {
 			Flags: []string{"--help", "-h", "--output"},
 		},
 		"agentspec-get": {
-			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o", "--hub", "--no-hub", "--non-interactive"},
+			Flags:     []string{"--help", "-h", "--version", "--label", "--output", "-o", "--hub", "--no-hub", "--hub-entry-id", "--non-interactive"},
 			PathFlags: pathFlags("--output", "-o"),
 		},
 		"agentspec-upload": {
@@ -694,7 +694,7 @@ func (t *Terminal) showHelp() {
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-list", "List all skills", "skill-list [options]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size, --output", "")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-describe", "Show skill detail + versions", "skill-describe <name> [--output json]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-get", "Download by name or choose a Hub entry", "skill-get <name> [hubEntryId] [version] [-o dir]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-get", "Download by name or choose a Hub entry", "skill-get <name> [name...] [--hub-entry-id id] [--version v1] [-o dir]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-upload", "Upload a skill draft (editing)", "skill-upload <path>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all skills in directory", "skill-upload --all <folder>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "skill-review", "Submit a draft for review", "skill-review <name> [--version v1]")
@@ -711,7 +711,7 @@ func (t *Terminal) showHelp() {
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-list", "List agent specs by Profile source", "agentspec-list [--hub|--no-hub] [options]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Options: --name, --page, --size, --output", "")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-describe", "Show agent spec detail + versions", "agentspec-describe <name> [--output json]")
-	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-get", "Download an agent spec to ~/.agentspecs", "agentspec-get <name> [hubEntryId] [--version v1]")
+	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-get", "Download an agent spec to ~/.agentspecs", "agentspec-get <name> [name...] [--hub-entry-id id] [--version v1]")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-upload", "Upload an agent spec draft (editing)", "agentspec-upload <path>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "", "Upload all agent specs in directory", "agentspec-upload --all <folder>")
 	fmt.Printf("\033[32m%-20s\033[0m %-40s %-30s\n", "agentspec-review", "Submit a draft for review", "agentspec-review <name> [--version v1]")
@@ -841,7 +841,7 @@ func (t *Terminal) namespace(args []string) {
 
 	// Switch namespace
 	if args[0] == skill.SharedNamespaceID {
-		fmt.Println("Error: Hub is selected with skill-list --hub or skill-get <skillName> <hubEntryId>; keep the current business Namespace.")
+		fmt.Println("Error: Hub is selected with skill-list --hub or skill-get <skillName> --hub-entry-id <id>; keep the current business Namespace.")
 		return
 	}
 	oldNs := t.client.Namespace
@@ -1084,7 +1084,7 @@ func (t *Terminal) getSkill(args []string) {
 	if t.skillGetHandler != nil {
 		readSelection := func(prompt string) (string, error) {
 			if t.rl == nil {
-				return "", fmt.Errorf("interactive input is unavailable; specify a hubEntryId")
+				return "", fmt.Errorf("interactive input is unavailable; specify --hub-entry-id")
 			}
 			t.rl.SetPrompt(prompt)
 			defer t.rl.SetPrompt(t.getPrompt())
@@ -2072,7 +2072,7 @@ func (t *Terminal) getAgentSpec(args []string) {
 	if t.agentSpecGetHandler != nil {
 		readSelection := func(prompt string) (string, error) {
 			if t.rl == nil {
-				return "", fmt.Errorf("interactive input is unavailable; specify a hubEntryId")
+				return "", fmt.Errorf("interactive input is unavailable; specify --hub-entry-id")
 			}
 			t.rl.SetPrompt(prompt)
 			defer t.rl.SetPrompt(t.getPrompt())

@@ -53,14 +53,14 @@ func TestInteractiveSkillGetUsesSharedHandlerAndHidesInternalNamespace(t *testin
 	called := false
 	term.SetSkillGetHandler(func(args []string, readSelection func(string) (string, error)) error {
 		called = true
-		if strings.Join(args, " ") != "find-skills 749" {
+		if strings.Join(args, " ") != "find-skills --hub-entry-id 749" {
 			t.Fatalf("wrong get arguments: %v", args)
 		}
 		return fmt.Errorf("fixed-version selection")
 	})
 	out := captureTerminalStdout(t, func() {
 		term.handleCommand("ns __nacos_ai_hub__")
-		term.handleCommand("skill-get find-skills 749")
+		term.handleCommand("skill-get find-skills --hub-entry-id 749")
 	})
 	if !called || c.Namespace != "business" || !strings.Contains(out, "fixed-version selection") {
 		t.Fatalf("bad dispatch or internal Namespace switch: %s", out)

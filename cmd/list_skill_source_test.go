@@ -33,7 +33,10 @@ func TestSkillListSourcePriorityAndRequests(t *testing.T) {
 				if err := config.SetCurrentProfile("team"); err != nil {
 					t.Fatal(err)
 				}
-				want, _ := config.NormalizeSkillSource(preference)
+				want := preference
+				if want == "" {
+					want = "namespace"
+				}
 				if flag == "--hub" {
 					want = "hub"
 				}
@@ -120,7 +123,7 @@ func TestSkillListMissingPreferenceAndExplicitProfile(t *testing.T) {
 	resetRootConfigForTest(t)
 	setTestHome(t, t.TempDir())
 	command := newSkillListCommand()
-	if source, err := resolveSkillListSource(command, false, false); err != nil || source != "all" {
+	if source, err := resolveSkillListSource(command, false, false); err != nil || source != "namespace" {
 		t.Fatalf("default: %s %v", source, err)
 	}
 	path, _ := config.GetProfileConfigPath("selected")
@@ -173,6 +176,10 @@ func TestSkillListReusesExistingCommandAndProfileKeys(t *testing.T) {
 
 func TestSkillListDoesNotReturnPartialResultsOnHubFailure(t *testing.T) {
 	resetRootConfigForTest(t)
+	configFile = t.TempDir() + "/profile.conf"
+	if err := (&config.Config{Source: "all"}).SaveConfig(configFile); err != nil {
+		t.Fatal(err)
+	}
 	setTestHome(t, t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("namespaceId") == skill.SharedNamespaceID {

@@ -13,7 +13,7 @@ the user's actual home directory.
 
 | Area | Scenarios |
 | --- | --- |
-| Source | `namespace`, `hub`, `all`, absent defaults to all; explicit flags override; explicit entry ID overrides Profile |
+| Source | `namespace`, `hub`, `all`, absent defaults to namespace; explicit flags override; explicit entry ID overrides Profile |
 | Validation | `--hub` and `--no-hub` conflict in both orders; entry ID conflicts with `--no-hub`; invalid source and paging bounds fail |
 | Pagination | Each selected source gets its own page/size/count; later exact-name pages are searched; equal names retain distinct IDs |
 | Wire model | Parse nested `hub` metadata, never infer identity from labels/latest; use Hub timestamp/download count; preserve ordinary nullable governance fields |

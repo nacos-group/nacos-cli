@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 
 func TestOrdinarySkillBatchRetainsProgressSummaryAndPartialFailure(t *testing.T) {
 	resetRootConfigForTest(t)
-	archive := makeZip(t, map[string]string{"demo/SKILL.md": "# Demo\n"})
+	archive := makeZip(t, map[string]string{"123/SKILL.md": "# Demo\n"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/nacos/v3/client/ai/skills" {
 			t.Errorf("ordinary download changed endpoint: %s", r.URL.Path)
@@ -24,6 +25,9 @@ func TestOrdinarySkillBatchRetainsProgressSummaryAndPartialFailure(t *testing.T)
 		if r.URL.Query().Get("name") == "missing" {
 			w.WriteHeader(http.StatusNotFound)
 			return
+		}
+		if r.URL.Query().Get("name") != "123" {
+			t.Errorf("expected numeric resource name: %s", r.URL)
 		}
 		w.Header().Set("X-Nacos-Skill-Resolved-Version", "v2")
 		_, _ = w.Write(archive)
@@ -35,14 +39,14 @@ func TestOrdinarySkillBatchRetainsProgressSummaryAndPartialFailure(t *testing.T)
 	}
 	command := newSkillGetCommandForSession(c, "", "", nil)
 	command.SilenceUsage, command.SilenceErrors = true, true
-	command.SetArgs([]string{"missing", "demo", "--no-hub", "-o", t.TempDir()})
+	command.SetArgs([]string{"missing", "123", "--no-hub", "-o", t.TempDir()})
 	var output, errors bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&errors)
 	if err := command.Execute(); err == nil {
 		t.Fatal("partial failure must return an error")
 	}
-	for _, expected := range []string{"[1/2] Fetching skill: missing", "[2/2] Fetching skill: demo", "Total: 2 | Success: 1 | Failed: 1", "Failed skills: missing"} {
+	for _, expected := range []string{"[1/2] Fetching skill: missing", "[2/2] Fetching skill: 123", "Total: 2 | Success: 1 | Failed: 1", "Failed skills: missing"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Errorf("missing batch result %q in %s", expected, output.String())
 		}
@@ -54,12 +58,13 @@ func TestOrdinarySkillBatchRetainsProgressSummaryAndPartialFailure(t *testing.T)
 
 func TestSharedSkillGetPreservesExtractionAndOrdinaryLock(t *testing.T) {
 	for _, testCase := range []struct {
-		name                 string
+		name, destination    string
 		shared, existingLock bool
 	}{
-		{"shared-without-lock", true, false},
-		{"shared-with-existing-lock", true, true},
-		{"ordinary-download", false, false},
+		{"shared-without-lock", "", true, false},
+		{"shared-with-existing-lock", "directory", true, true},
+		{"ordinary-download", "directory", false, false},
+		{"shared-with-sync-link", "link", true, false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			resetRootConfigForTest(t)
@@ -104,18 +109,42 @@ func TestSharedSkillGetPreservesExtractionAndOrdinaryLock(t *testing.T) {
 			command := newSkillGetCommandForSession(c, "", "", nil)
 			args := []string{"demo", "--version", "v2", "-o", outputDir}
 			if testCase.shared {
-				args = append(args, "17")
+				args = append(args, "--hub-entry-id", "17")
 			} else {
 				args = append(args, "--no-hub")
 			}
+			dest := filepath.Join(outputDir, "demo")
+			switch testCase.destination {
+			case "link":
+				if err := os.Symlink(t.TempDir(), dest); err != nil {
+					if runtime.GOOS == "windows" {
+						t.Skipf("symlink unavailable: %v", err)
+					}
+					t.Fatal(err)
+				}
+			case "directory":
+				if err := os.Mkdir(dest, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.destination != "" {
+				if err := os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte("old"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			command.SetArgs(args)
-			var output bytes.Buffer
+			var output, warnings bytes.Buffer
+			command.SetErr(&warnings)
 			command.SetOut(&output)
 			if err := command.Execute(); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := os.Stat(filepath.Join(outputDir, "demo", "SKILL.md")); err != nil {
-				t.Fatal(err)
+			if data, err := os.ReadFile(filepath.Join(dest, "SKILL.md")); err != nil || string(data) != "# Demo\n" {
+				t.Fatalf("extracted content=%q, err=%v", data, err)
+			}
+			if strings.Contains(warnings.String(), dest+" already exists") != (testCase.destination == "directory") ||
+				strings.Contains(warnings.String(), dest+" is a link; matching files in its target") != (testCase.destination == "link") {
+				t.Fatalf("unexpected overwrite warning: %q", warnings.String())
 			}
 			if c.Namespace != "team" {
 				t.Fatal("Hub download changed the session Namespace")

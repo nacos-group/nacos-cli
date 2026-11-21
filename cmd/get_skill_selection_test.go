@@ -22,19 +22,18 @@ func TestSkillGetSelectsDuplicateNamesAndPinsHubVersion(t *testing.T) {
 		choice            string
 		wantID, wantError string
 	}{
-		{"explicit-id-default-version", []string{"demo", "17"}, "", "17", ""},
-		{"explicit-positional-version", []string{"demo", "18", "v1"}, "", "18", ""},
+		{"explicit-id-default-version", []string{"demo", "--hub-entry-id", "17"}, "", "17", ""},
+		{"explicit-matching-version", []string{"demo", "--hub-entry-id", "18", "--version", "v1"}, "", "18", ""},
 		{"interactive-choice", []string{"demo"}, "2", "17", ""},
 		{"interactive-third-match", []string{"demo"}, "3", "18", ""},
 		{"ambiguous-noninteractive", []string{"demo", "--non-interactive"}, "", "", "ambiguous name"},
 		{"cancel", []string{"demo"}, "0", "", ""},
 		{"invalid-choice", []string{"demo"}, "9", "", "invalid choice"},
-		{"wrong-version", []string{"demo", "17", "v9"}, "", "", "only shares version"},
-		{"wrong-flag-version", []string{"demo", "17", "--version", "v9"}, "", "", "only shares version"},
-		{"wrong-label", []string{"demo", "17", "--label", "stable"}, "", "", "one fixed shared version"},
-		{"unknown-id", []string{"demo", "99"}, "", "", "no readable Hub entry"},
-		{"mismatched-name", []string{"different", "17"}, "", "", "no readable Hub entry"},
-		{"id-and-no-hub", []string{"demo", "17", "--no-hub"}, "", "", "cannot be combined"},
+		{"wrong-flag-version", []string{"demo", "--hub-entry-id", "17", "--version", "v9"}, "", "", "only shares version"},
+		{"wrong-label", []string{"demo", "--hub-entry-id", "17", "--label", "stable"}, "", "", "one fixed shared version"},
+		{"unknown-id", []string{"demo", "--hub-entry-id", "99"}, "", "", "no readable Hub entry"},
+		{"mismatched-name", []string{"different", "--hub-entry-id", "17"}, "", "", "no readable Hub entry"},
+		{"id-and-no-hub", []string{"demo", "--hub-entry-id", "17", "--no-hub"}, "", "", "were all set"},
 		{"conflicting-flags", []string{"demo", "--hub", "--no-hub"}, "", "", "were all set"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -43,7 +42,7 @@ func TestSkillGetSelectsDuplicateNamesAndPinsHubVersion(t *testing.T) {
 			path, _ := config.GetProfileConfigPath("team")
 			// An explicit entry ID must override even a Namespace-only profile.
 			preference := "all"
-			if len(test.args) > 1 && skill.IsHubEntryID(test.args[1]) {
+			if len(test.args) > 1 && test.args[1] == "--hub-entry-id" {
 				preference = "namespace"
 			}
 			if err := (&config.Config{Source: preference}).SaveConfig(path); err != nil {
@@ -118,19 +117,9 @@ func TestSkillGetSelectsDuplicateNamesAndPinsHubVersion(t *testing.T) {
 			if strings.Contains(out.String(), skill.SharedNamespaceID) {
 				t.Fatalf("internal Namespace leaked into UI: %s", out.String())
 			}
-			if strings.Contains(out.String(), "Multiple skills") && !strings.Contains(out.String(), "skill-get demo 17") {
+			if strings.Contains(out.String(), "Multiple skills") && !strings.Contains(out.String(), "skill-get demo --hub-entry-id 17") {
 				t.Fatal("missing direct selection command")
 			}
 		})
-	}
-}
-
-func TestSkillGetSelectionArgumentsPreserveBatchAndRejectVersionConflict(t *testing.T) {
-	names, id, version, err := parseSkillGetSelection([]string{"alpha", "beta"}, "v1")
-	if err != nil || len(names) != 2 || id != "" || version != "v1" {
-		t.Fatalf("legacy batch changed: %v %s %s %v", names, id, version, err)
-	}
-	if _, _, _, err := parseSkillGetSelection([]string{"demo", "17", "v2"}, "v3"); err == nil {
-		t.Fatal("conflicting versions accepted")
 	}
 }

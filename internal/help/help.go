@@ -17,7 +17,7 @@ type CommandHelp struct {
 var (
 	SkillList = CommandHelp{
 		Command:     "skill-list",
-		Description: "List skills with governance info. Source priority: explicit flags > current Profile source > all (Namespace + Hub).",
+		Description: "List skills with governance info. Source priority: explicit flags > current Profile source > current Namespace.",
 		Parameters: []string{
 			"--hub           Only Hub; overrides Profile (conflicts with --no-hub)",
 			"--no-hub        Only current Namespace; overrides Profile",
@@ -42,7 +42,7 @@ var (
 			"skill-list --output json",
 			"",
 			"Note:",
-			"  - Profile source: namespace | hub | all; unset defaults to all",
+			"  - Profile source: namespace | hub | all; unset defaults to namespace",
 			"  - Namespace and Hub results have independent pagination and counts",
 			"  - Every row shows latest/editing/reviewing version pointers and online count",
 			"  - For full version-level status (editing/reviewing/online/offline per version), use skill-describe",
@@ -51,10 +51,10 @@ var (
 
 	SkillGet = CommandHelp{
 		Command:     "skill-get",
-		Description: "Download by name from the Profile's sources. Duplicate names prompt for selection. An optional hubEntryId selects a Hub share without changing Namespace; its sole shared version is the default.",
+		Description: "Download by name from the Profile's sources. Duplicate names prompt for selection. The optional --hub-entry-id flag selects a Hub share without changing Namespace; its sole shared version is the default.",
 		Parameters: []string{
 			"skillName...    Required. One or more skill names to download",
-			"skillName hubEntryId [version]  Select a Hub entry; version is optional",
+			"--hub-entry-id   Select a Hub entry for a single skill name",
 			"-o, --output    Output directory (default: ~/.skills)",
 			"--version       Namespace version; Hub accepts only its current shared version",
 			"--label         Namespace version label (Hub only accepts latest)",
@@ -66,8 +66,8 @@ var (
 			"skill-get skill-creator",
 			"",
 			"# Select a shared entry; no Namespace switch or version required",
-			"skill-get find-skills 749",
-			"skill-get find-skills 749 -o ./downloads/hub-749",
+			"skill-get find-skills --hub-entry-id 749",
+			"skill-get find-skills --hub-entry-id 749 -o ./downloads/hub-749",
 			"",
 			"# Download a specific version",
 			"skill-get skill-creator --version v2",
@@ -431,7 +431,7 @@ var (
 
 	AgentSpecList = CommandHelp{
 		Command:     "agentspec-list",
-		Description: "List agent specs from the Profile source (namespace, hub, or all). Explicit flags override the Profile; an unset source defaults to all. Namespace and Hub have independent pages and totals.",
+		Description: "List agent specs from the Profile source (namespace, hub, or all). Explicit flags override the Profile; an unset source defaults to namespace. Namespace and Hub have independent pages and totals.",
 		Parameters: []string{
 			"--hub           Only Hub, overriding the Profile; conflicts with --no-hub",
 			"--no-hub        Only current Namespace, overriding the Profile",
@@ -466,7 +466,7 @@ var (
 		Description: "Download an AgentSpec using the Profile source and the existing Client JSON API. Choose among duplicate names, or select an explicit Hub entry. Preserve manifest.json and resource files.",
 		Parameters: []string{
 			"name...         Required. One or more agent spec names to download",
-			"hubEntryId      Optional second positive decimal argument selects a Hub entry; optional third argument is its version",
+			"--hub-entry-id   Select a Hub entry for a single agent spec name",
 			"-o, --output    Output directory (default: ~/.agentspecs)",
 			"--version       Specific version; Hub defaults to its only shared version and rejects a different version",
 			"--label         Ordinary Namespace version label; Hub permits only empty or latest",
@@ -479,8 +479,8 @@ var (
 			"agentspec-get my-worker",
 			"",
 			"# Select a fixed Hub entry; version is optional",
-			"agentspec-get my-worker 749",
-			"agentspec-get my-worker 749 --version v2",
+			"agentspec-get my-worker --hub-entry-id 749",
+			"agentspec-get my-worker --hub-entry-id 749 --version v2",
 			"",
 			"# Download a specific version",
 			"agentspec-get my-worker --version v2",

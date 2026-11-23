@@ -331,6 +331,8 @@ func (s *SkillService) GetSkill(skillName, outputDir string, version, label stri
 	params := url.Values{}
 	params.Set("namespaceId", s.client.Namespace)
 	params.Set("name", skillName)
+	// Private Skill authorization resolves the resource from skillName.
+	params.Set("skillName", skillName)
 	if version != "" {
 		params.Set("version", version)
 	}
@@ -697,6 +699,8 @@ func (s *SkillService) FetchSkill(skillName, version, label, md5 string) (*Skill
 	params := url.Values{}
 	params.Set("namespaceId", s.client.Namespace)
 	params.Set("name", skillName)
+	// Private Skill authorization resolves the resource from skillName.
+	params.Set("skillName", skillName)
 	if version != "" {
 		params.Set("version", version)
 	}

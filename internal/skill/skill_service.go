@@ -31,19 +31,25 @@ type SkillInfo struct {
 // SkillListItem represents a skill item in the list, mirroring the admin
 // SkillSummary payload returned by GET /v3/admin/ai/skills/list.
 type SkillListItem struct {
-	Name             string            `json:"name"`
-	Description      string            `json:"description"`
-	Owner            string            `json:"owner,omitempty"`
-	Enable           bool              `json:"enable"`
-	Scope            string            `json:"scope,omitempty"`
-	BizTags          string            `json:"bizTags,omitempty"`
-	From             string            `json:"from,omitempty"`
-	Labels           map[string]string `json:"labels,omitempty"`
-	EditingVersion   string            `json:"editingVersion,omitempty"`
-	ReviewingVersion string            `json:"reviewingVersion,omitempty"`
-	OnlineCnt        *int              `json:"onlineCnt,omitempty"`
-	DownloadCount    *int64            `json:"downloadCount,omitempty"`
-	UpdateTime       *int64            `json:"updateTime,omitempty"`
+	Name              string            `json:"name"`
+	NamespaceID       string            `json:"namespaceId,omitempty"`
+	DiscoverySource   string            `json:"discoverySource,omitempty"`
+	HubEntryID        string            `json:"hubEntryId,omitempty"`
+	DisplayName       string            `json:"displayName,omitempty"`
+	SourceDisplayName string            `json:"sourceDisplayName,omitempty"`
+	Version           string            `json:"version,omitempty"`
+	Description       string            `json:"description"`
+	Owner             string            `json:"owner,omitempty"`
+	Enable            bool              `json:"enable"`
+	Scope             string            `json:"scope,omitempty"`
+	BizTags           string            `json:"bizTags,omitempty"`
+	From              string            `json:"from,omitempty"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	EditingVersion    string            `json:"editingVersion,omitempty"`
+	ReviewingVersion  string            `json:"reviewingVersion,omitempty"`
+	OnlineCnt         *int              `json:"onlineCnt,omitempty"`
+	DownloadCount     *int64            `json:"downloadCount,omitempty"`
+	UpdateTime        *int64            `json:"updateTime,omitempty"`
 }
 
 // SkillVersionSummary mirrors com.alibaba.nacos.api.ai.model.skills.SkillMeta.SkillVersionSummary.
@@ -93,57 +99,77 @@ type V3Response struct {
 
 // ListSkills lists all skills with name and description
 func (s *SkillService) ListSkills(skillName string, pageNo, pageSize int) ([]SkillListItem, int, error) {
-	if err := s.client.EnsureTokenValid(); err != nil {
+	page, err := s.listSkillPage(s.client.Namespace, skillName, pageNo, pageSize)
+	if err != nil {
 		return nil, 0, err
+	}
+	return page.PageItems, page.TotalCount, nil
+}
+
+func (s *SkillService) listSkillPage(namespace, skillName string, pageNo, pageSize int) (*SkillListResponse, error) {
+	return s.querySkillListPage(namespace, skillName, "", pageNo, pageSize)
+}
+
+func (s *SkillService) querySkillListPage(namespace, skillName, search string, pageNo, pageSize int) (*SkillListResponse, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, err
 	}
 	params := url.Values{}
 	params.Set("pageNo", fmt.Sprintf("%d", pageNo))
 	params.Set("pageSize", fmt.Sprintf("%d", pageSize))
-	params.Set("namespaceId", s.client.Namespace)
+	params.Set("namespaceId", namespace)
 
 	if skillName != "" {
 		params.Set("skillName", skillName)
+	}
+	if search != "" {
+		params.Set("search", search)
 	}
 
 	listURL := fmt.Sprintf("%s/nacos/v3/admin/ai/skills/list?%s",
 		s.client.BaseURL(), params.Encode())
 
-	req, err := s.client.NewAuthedRequest("GET", listURL, nil)
+	requestClient := *s.client
+	requestClient.Namespace = namespace
+	req, err := requestClient.NewAuthedRequest("GET", listURL, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list skills failed: %w", err)
+		return nil, fmt.Errorf("list skills failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, 0, client.ParseHTTPError(resp.StatusCode, respBody, "list skills")
+		return nil, client.ParseHTTPError(resp.StatusCode, respBody, "list skills")
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("read response failed: %w", err)
+		return nil, fmt.Errorf("read response failed: %w", err)
 	}
 
 	var v3Resp V3Response
 	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
-		return nil, 0, fmt.Errorf("parse response failed: %w", err)
+		return nil, fmt.Errorf("parse response failed: %w", err)
 	}
 
 	if v3Resp.Code != 0 {
-		return nil, 0, fmt.Errorf("list skills failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+		return nil, fmt.Errorf("list skills failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
 	}
 
 	var skillList SkillListResponse
 	if err := json.Unmarshal(v3Resp.Data, &skillList); err != nil {
-		return nil, 0, fmt.Errorf("parse skill list failed: %w", err)
+		return nil, fmt.Errorf("parse skill list failed: %w", err)
 	}
 
-	return skillList.PageItems, skillList.TotalCount, nil
+	if skillList.PageItems == nil {
+		skillList.PageItems = []SkillListItem{}
+	}
+	return &skillList, nil
 }
 
 // DescribeSkill fetches the admin SkillMeta detail (governance + versions)

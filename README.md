@@ -14,6 +14,131 @@ A powerful command-line tool for managing Nacos configuration center and AI skil
 - 📦 Batch operations - upload all skills and agent specs at once
 - 🧾 Structured output - `--output json` on list/describe for scripting
 
+## Shared Skill discovery
+
+The existing `skill-list` command supports three sources: `namespace`, `hub`,
+and `all` (Namespace + Hub). Explicit command flags override the current profile's
+`source` setting; an unset setting defaults to `namespace`.
+`--hub` means **only Hub**; `--no-hub` means **only the current Namespace**.
+Supplying both flags is an error regardless of their order.
+
+```bash
+nacos-cli profile set team source=all
+nacos-cli profile switch team
+nacos-cli skill-list                      # Current profile's source mode
+nacos-cli skill-list --hub                # Only Hub
+nacos-cli skill-list --no-hub             # Only current Namespace
+nacos-cli skill-list --name review --output json
+nacos-cli skill-get find-skills                # Choose if multiple sources match
+nacos-cli skill-get find-skills --hub-entry-id 749  # Explicit Hub entry; version optional
+nacos-cli skill-get find-skills --hub-entry-id 749 -o ./downloads/hub-749
+```
+
+Profile YAML uses `source: namespace`, `source: hub`, or `source: all`.
+Use `profile get source` to inspect the effective preference and
+`profile set source=namespace` to keep existing Namespace-only workflows.
+Connection options such as `--host` do not override this preference.
+Earlier development profiles using `skillSource` remain readable; saving them writes
+only the canonical `source` field. The profile commands expose only `source`.
+
+Skill lists retain colored headings, names and status in both the interactive
+terminal and direct commands written to a terminal. `--output json` and redirected
+direct-command output remain free of ANSI color codes; `NO_COLOR` disables list colors. Changes to connection or authentication
+settings require leaving and restarting an already open terminal; source preferences
+are read again for each Skill list/get command.
+
+Both sources reuse `/v3/admin/ai/skills/list`; no new command or list endpoint is
+introduced. Namespace results keep their governance metadata, including draft and
+review versions. In `all` mode, sources are displayed separately, Namespace first;
+`--page` and `--size` apply independently to each source. JSON contains `source`,
+`namespace` and `hub`, each with its own page and count. Single-source JSON retains
+the existing `pageItems`/`totalCount`/`pageNo`/`pageSize`/`totalPages` structure.
+Equal display names remain distinct. Results include `discoverySource` and
+`namespaceId`; Hub results retain `hubEntryId`, display name, opaque download
+`name` and pinned `version`. A failed source fails the command without emitting
+partial results. The server's Hub switch remains authoritative; disabled Hub
+lists are empty. Servers without Hub support can be used with `--no-hub` or
+`source: namespace`; other request failures are reported.
+
+Shared downloads are explicit one-shot downloads of the pinned version. Their
+ZIP retains the Skill folder name, so the command reports the extraction output
+directory. They do not register the opaque shared ID in the ordinary name-only
+sync lock or enable automatic synchronization.
+
+`skill-get <name>` searches the Profile's selected sources by exact name. A unique
+match is downloaded directly. Duplicate names show source, author, shared version,
+and commands such as `skill-get find-skills --hub-entry-id 749`. In an interactive
+terminal, choose a candidate number or press Enter to cancel. Cancelling a batch
+stops the remaining downloads and reports the completed items. An earlier failure
+still gives the command a nonzero exit status.
+Scripts can pass an entry ID directly; `--non-interactive` reports ambiguity without
+waiting for input. `--hub` and `--no-hub` override the Profile for downloads too.
+
+`skill-get <name> --hub-entry-id <id> [--version <version>]` selects one Hub entry and
+overrides the Profile preference. Positional arguments are resource names, including
+numeric names in batch downloads. Each Hub entry shares one version. Omitting
+`--version` uses that version, and requesting a different version fails.
+The CLI sends the selected fixed version to the original download API. If sharing
+changes before download, it reports an error and asks for a fresh selection.
+The current business Namespace remains unchanged; users do not switch into the
+internal Hub Namespace. Different shares can contain the same package folder name;
+use separate `-o` directories when keeping them side by side. Both Namespace and Hub
+downloads warn before overwriting matching files in an existing Skill directory.
+
+## Shared AgentSpec discovery
+
+The existing `agentspec-list` and `agentspec-get` commands now follow the same
+source selection as Skill. Both resource types share the Profile `source` field:
+`namespace` (default), `hub`, or `all`. Explicit `--hub` / `--no-hub` flags override
+it and are mutually exclusive, regardless of order. An explicit Hub entry ID also
+overrides the Profile, and cannot be combined with `--no-hub`.
+
+```bash
+nacos-cli profile set default source=all
+nacos-cli agentspec-list
+nacos-cli agentspec-list --hub --page 1 --size 20
+nacos-cli agentspec-list --no-hub --output json
+nacos-cli agentspec-get my-worker
+nacos-cli agentspec-get my-worker --hub-entry-id 749
+nacos-cli agentspec-get my-worker --hub-entry-id 749 --version 1.0.0 -o ./downloads/team-b
+nacos-cli agentspec-get my-worker --no-hub --label stable
+```
+
+Lists reuse `/v3/admin/ai/agentspecs/list`. Namespace and Hub retain independent
+pages and totals, without deduplicating equal display names. Single-source JSON
+keeps the original page structure; `all` JSON contains `source`, `namespace` and
+`hub`. Ordinary governance metadata, including private resources and drafts,
+remains available as authorized by the server. `--name` retains AgentSpec's
+existing exact-name filter. Hub display names and fixed versions come from the
+server's nested `hub` metadata. Hub timestamps and download counts are its own,
+not the source resource's. A failed source fails the command without partial output.
+An empty/disabled Hub yields an empty Hub page. Use `source=namespace` or
+`--no-hub` with servers that do not support Hub.
+
+Downloads reuse `/v3/client/ai/agentspecs`. A unique exact-name match downloads
+directly; duplicate names list the Namespace, author, source display name, Hub
+entry ID and fixed version for selection. Scripts can select a single name with
+`--hub-entry-id <id>` or use `--non-interactive` to report ambiguity. Positional
+arguments are resource names. Omitting the version uses the shared version.
+Requesting a different version fails. Hub labels
+permit only empty or `latest`; the CLI then sends the fixed version without a
+label, preventing the server's AgentSpec label fallback from overriding the pin.
+Revoked or changed shares fail without falling back to the source latest version.
+
+AgentSpec keeps its native JSON contract: `manifest.json` and resource files
+(including base64-encoded binary resources) are saved to
+`~/.agentspecs/<resource-name>`, or `<output>/<resource-name>` with `-o`.
+The directory uses the display name, not the opaque Hub ID. Manifest contents are
+preserved. Use separate output directories for same-name packages kept side by side.
+Downloads do not switch the active business Namespace, register synchronization,
+or import a server-side draft. Upload, review, release, describe and configuration
+commands keep their existing behavior. Both direct commands and the interactive
+terminal use the same list/get handlers, Profile reload and color rules as Skill.
+No standalone Hub command, new HTTP endpoint or resource-specific Profile key is added.
+
+See [AgentSpec Hub validation scenarios](docs/agentspec-hub-validation.md) for the
+regression and deployed integration checklist.
+
 ## Installation
 
 ### Official Installer

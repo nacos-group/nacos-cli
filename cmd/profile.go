@@ -9,7 +9,6 @@ import (
 
 	"github.com/nacos-group/nacos-cli/internal/client"
 	"github.com/nacos-group/nacos-cli/internal/config"
-	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +28,7 @@ var (
 		"securitytoken": true,
 		"token":         true,
 		"namespace":     true,
+		"source":        true,
 	}
 )
 
@@ -143,7 +143,7 @@ Examples:
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-			term := terminal.NewTerminalWithProfile(nacosClient, profileName)
+			term := newInteractiveTerminal(nacosClient, profileName, configPath)
 			if err := term.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
@@ -214,6 +214,9 @@ Examples:
 		} else {
 			fmt.Printf("%-15s %s\n", "namespace:", "(public)")
 		}
+		source, _, sourceErr := cfg.GetValue("source")
+		checkError(sourceErr)
+		fmt.Printf("%-15s %s\n", "source:", source)
 	},
 }
 
@@ -324,7 +327,8 @@ Examples:
   nacos-cli profile get
   nacos-cli profile get dev
   nacos-cli profile get dev server
-  nacos-cli profile get auth-type`,
+  nacos-cli profile get auth-type
+  nacos-cli profile get default source`,
 	Args: cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		profileName, key := mustResolveProfileGetArgs(args)
@@ -357,7 +361,8 @@ Examples:
   nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=none
   nacos-cli profile set dev host=127.0.0.1 port=8848 auth-type=token token=<token>
   nacos-cli profile set dev auth-type=nacos username=nacos password=nacos
-  nacos-cli profile set dev server=127.0.0.1:8848 namespace=public`,
+  nacos-cli profile set dev server=127.0.0.1:8848 namespace=public
+  nacos-cli profile set default source=all`,
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		profileName, pairs := mustResolveProfileSetArgs(args)
@@ -567,6 +572,7 @@ func printProfileValues(cfg *config.Config) {
 		"security-token",
 		"token",
 		"namespace",
+		"source",
 	} {
 		value, sensitive, err := cfg.GetValue(key)
 		if err != nil {

@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -77,12 +76,6 @@ func TestSyncAgentsAreSharedAcrossProfiles(t *testing.T) {
 
 func withSkillTempHome(t *testing.T) {
 	t.Helper()
-	oldHome := os.Getenv("HOME")
 	home := t.TempDir()
-	if err := os.Setenv("HOME", home); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.Setenv("HOME", oldHome)
-	})
+	setTestHome(t, home)
 }

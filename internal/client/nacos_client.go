@@ -110,8 +110,16 @@ func ParseHTTPError(statusCode int, body []byte, operation string) error {
 	serverMsg := ""
 	if len(body) > 0 {
 		var v3 V3Response
-		if err := json.Unmarshal(body, &v3); err == nil && v3.Message != "" {
+		if err := json.Unmarshal(body, &v3); err == nil {
 			serverMsg = v3.Message
+			// NacosApiException puts the concrete validation reason in data.
+			var detail string
+			if json.Unmarshal(v3.Data, &detail) == nil && strings.TrimSpace(detail) != "" && detail != serverMsg {
+				if serverMsg != "" {
+					serverMsg += ": "
+				}
+				serverMsg += detail
+			}
 		}
 	}
 

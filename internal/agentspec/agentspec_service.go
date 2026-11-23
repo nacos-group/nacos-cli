@@ -24,18 +24,25 @@ type AgentSpecService struct {
 
 // AgentSpecListItem represents an agentspec item in the admin list (AgentSpecSummary in Nacos).
 type AgentSpecListItem struct {
-	NamespaceId      string            `json:"namespaceId,omitempty"`
-	Name             string            `json:"name"`
-	Description      *string           `json:"description"`
-	Enable           bool              `json:"enable"`
-	Labels           map[string]string `json:"labels"`
-	Scope            *string           `json:"scope,omitempty"`
-	BizTags          *string           `json:"bizTags,omitempty"`
-	EditingVersion   *string           `json:"editingVersion"`
-	ReviewingVersion *string           `json:"reviewingVersion"`
-	OnlineCnt        int               `json:"onlineCnt"`
-	DownloadCount    *int64            `json:"downloadCount,omitempty"`
-	UpdateTime       int64             `json:"updateTime"`
+	DiscoverySource   string            `json:"discoverySource,omitempty"`
+	HubEntryID        string            `json:"hubEntryId,omitempty"`
+	DisplayName       string            `json:"displayName,omitempty"`
+	SourceDisplayName string            `json:"sourceDisplayName,omitempty"`
+	Version           string            `json:"version,omitempty"`
+	Owner             string            `json:"owner,omitempty"`
+	Hub               *AgentSpecHubInfo `json:"hub,omitempty"`
+	NamespaceId       string            `json:"namespaceId,omitempty"`
+	Name              string            `json:"name"`
+	Description       *string           `json:"description"`
+	Enable            bool              `json:"enable"`
+	Labels            map[string]string `json:"labels"`
+	Scope             *string           `json:"scope,omitempty"`
+	BizTags           *string           `json:"bizTags,omitempty"`
+	EditingVersion    *string           `json:"editingVersion"`
+	ReviewingVersion  *string           `json:"reviewingVersion"`
+	OnlineCnt         int               `json:"onlineCnt"`
+	DownloadCount     *int64            `json:"downloadCount,omitempty"`
+	UpdateTime        int64             `json:"updateTime"`
 }
 
 // AgentSpecListResponse represents the response from agentspec list API
@@ -98,13 +105,21 @@ func NewAgentSpecService(nacosClient *client.NacosClient) *AgentSpecService {
 
 // ListAgentSpecs lists all agentspecs with admin API
 func (s *AgentSpecService) ListAgentSpecs(agentSpecName string, search string, pageNo, pageSize int) ([]AgentSpecListItem, int, error) {
-	if err := s.client.EnsureTokenValid(); err != nil {
+	page, err := s.queryAgentSpecListPage(s.client.Namespace, agentSpecName, search, pageNo, pageSize)
+	if err != nil {
 		return nil, 0, err
+	}
+	return page.PageItems, page.TotalCount, nil
+}
+
+func (s *AgentSpecService) queryAgentSpecListPage(namespace, agentSpecName, search string, pageNo, pageSize int) (*AgentSpecListResponse, error) {
+	if err := s.client.EnsureTokenValid(); err != nil {
+		return nil, err
 	}
 	params := url.Values{}
 	params.Set("pageNo", fmt.Sprintf("%d", pageNo))
 	params.Set("pageSize", fmt.Sprintf("%d", pageSize))
-	params.Set("namespaceId", s.client.Namespace)
+	params.Set("namespaceId", namespace)
 
 	if agentSpecName != "" {
 		params.Set("agentSpecName", agentSpecName)
@@ -120,43 +135,52 @@ func (s *AgentSpecService) ListAgentSpecs(agentSpecName string, search string, p
 	listURL := fmt.Sprintf("%s/nacos/v3/admin/ai/agentspecs/list?%s",
 		s.client.BaseURL(), params.Encode())
 
-	req, err := s.client.NewAuthedRequest("GET", listURL, nil)
+	requestClient := *s.client
+	requestClient.Namespace = namespace
+	req, err := requestClient.NewAuthedRequest("GET", listURL, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list agentspecs failed: %w", err)
+		return nil, fmt.Errorf("list agentspecs failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, 0, client.ParseHTTPError(resp.StatusCode, respBody, "list agentspecs")
+		return nil, client.ParseHTTPError(resp.StatusCode, respBody, "list agentspecs")
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("read response failed: %w", err)
+		return nil, fmt.Errorf("read response failed: %w", err)
 	}
 
 	var v3Resp V3Response
 	if err := json.Unmarshal(respBody, &v3Resp); err != nil {
-		return nil, 0, fmt.Errorf("parse response failed: %w", err)
+		return nil, fmt.Errorf("parse response failed: %w", err)
 	}
 
 	if v3Resp.Code != 0 {
-		return nil, 0, fmt.Errorf("list agentspecs failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
+		return nil, fmt.Errorf("list agentspecs failed: code=%d, message=%s", v3Resp.Code, v3Resp.Message)
 	}
 
 	var listResp AgentSpecListResponse
 	if err := json.Unmarshal(v3Resp.Data, &listResp); err != nil {
-		return nil, 0, fmt.Errorf("parse agentspec list failed: %w", err)
+		return nil, fmt.Errorf("parse agentspec list failed: %w", err)
 	}
 
-	return listResp.PageItems, listResp.TotalCount, nil
+	if listResp.PageItems == nil {
+		listResp.PageItems = []AgentSpecListItem{}
+	}
+	if namespace == SharedNamespaceID {
+		for i := range listResp.PageItems {
+			listResp.PageItems[i].applyHubMetadata()
+		}
+	}
+	return &listResp, nil
 }
 
 // buildResourceRelativePath matches Nacos AgentSpecOperationServiceImpl.buildResourcePath:
@@ -180,6 +204,11 @@ func buildResourceRelativePath(res *AgentSpecResource) string {
 // GetAgentSpec retrieves an agentspec via the Client API and saves it to local directory.
 // Priority for version resolution: label > version > latest.
 func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label string) error {
+	return s.getAgentSpec(name, outputDir, version, label, name)
+}
+
+// getAgentSpec keeps the request identity separate from the local package directory.
+func (s *AgentSpecService) getAgentSpec(name, outputDir, version, label, directoryName string) error {
 	if err := s.client.EnsureTokenValid(); err != nil {
 		return err
 	}
@@ -201,8 +230,7 @@ func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label s
 		return fmt.Errorf("failed to build request: %w", err)
 	}
 
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to get agentspec: %w", err)
 	}
@@ -229,9 +257,23 @@ func (s *AgentSpecService) GetAgentSpec(name, outputDir string, version, label s
 	if err := json.Unmarshal(v3Resp.Data, &spec); err != nil {
 		return fmt.Errorf("failed to parse agentspec: %w", err)
 	}
+	if s.client.Namespace == SharedNamespaceID {
+		if len(bytes.TrimSpace(v3Resp.Data)) == 0 || bytes.Equal(bytes.TrimSpace(v3Resp.Data), []byte("null")) {
+			return fmt.Errorf("Hub returned no AgentSpec content")
+		}
+		for _, res := range spec.Resource {
+			if res == nil || res.Content == "" {
+				continue
+			}
+			rel := filepath.FromSlash(strings.ReplaceAll(buildResourceRelativePath(res), "\\", "/"))
+			if !filepath.IsLocal(rel) || filepath.Clean(rel) == "." {
+				return fmt.Errorf("invalid Hub resource path %q", rel)
+			}
+		}
+	}
 
 	// Create output directory
-	specDir := filepath.Join(outputDir, name)
+	specDir := filepath.Join(outputDir, directoryName)
 	if err := os.MkdirAll(specDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}

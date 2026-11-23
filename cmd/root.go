@@ -9,7 +9,6 @@ import (
 	"github.com/nacos-group/nacos-cli/internal/client"
 	"github.com/nacos-group/nacos-cli/internal/config"
 	"github.com/nacos-group/nacos-cli/internal/skill"
-	"github.com/nacos-group/nacos-cli/internal/terminal"
 	"github.com/spf13/cobra"
 )
 
@@ -262,7 +261,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default behavior: start interactive terminal
 		nacosClient := mustNewNacosClient()
-		term := terminal.NewTerminalWithProfile(nacosClient, currentTerminalProfileName())
+		term := newInteractiveTerminal(nacosClient, currentTerminalProfileName(), configFile)
 		if err := term.Start(); err != nil {
 			checkError(err)
 		}
